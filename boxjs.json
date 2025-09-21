@@ -1,0 +1,53 @@
+{
+  "name": "Sophisticated Daily Weather",
+  "author": "AI Assistant",
+  "version": "1.0.0",
+  "apps": [
+    {
+      "id": "weather_config",
+      "name": "🔮 全能天气助手配置",
+      "desc": "请填写以下所有API密钥和位置信息，这是脚本运行的基础。",
+      "fields": [
+        {
+          "name": "caiyun_token",
+          "type": "input",
+          "label": "彩云天气令牌 (API Token)",
+          "placeholder": "请输入您的彩云天气令牌"
+        },
+        {
+          "name": "tx_map_key",
+          "type": "input",
+          "label": "腾讯地图密钥 (Key)",
+          "placeholder": "请输入您的腾讯地图密钥"
+        },
+        {
+          "name": "location",
+          "type": "input",
+          "label": "居住城市（中文名）",
+          "placeholder": "例如：北京"
+        },
+        {
+          "name": "tianxing_api_weather",
+          "type": "input",
+          "label": "天行数据 - 天气诗句API密钥",
+          "placeholder": "请输入天行数据的API密钥"
+        },
+        {
+          "name": "tianxing_api_morning",
+          "type": "input",
+          "label": "天行数据 - 早安心语API密钥",
+          "placeholder": "请输入天行数据的API密钥"
+        }
+      ],
+      "icons": [
+        "https://raw.githubusercontent.com/Koolson/Qure/master/IconSet/Color/Cloud.png",
+        "https://raw.githubusercontent.com/Koolson/Qure/master/IconSet/Color/Umbrella.png"
+      ]
+    }
+  ],
+  "panel": {
+    "url": "https://boxjs.com/",
+    "icon": "https://raw.githubusercontent.com/Koolson/Qure/master/IconSet/Color/BoxJS.png",
+    "color": "#2980b9"
+  }
+}
