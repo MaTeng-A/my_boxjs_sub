@@ -7,51 +7,27 @@
       "id": "Caiyun",
       "name": "彩云天气",
       "keys": [
-        "@caiyun.token.caiyun",
-        "@caiyun.token.tencent",
-        "@caiyun.display_location",
-        "@caiyun.location.latitude",
-        "@caiyun.location.longitude",
-        "@caiyun.address"
+        "caiyun_token",
+        "tencent_token",
+        "display_location",
+        "latitude", 
+        "longitude",
+        "address"
       ],
       "settings": [
         {
-          "id": "@caiyun.token.caiyun",
+          "id": "caiyun_token",
           "name": "彩云天气API Token",
-          "val": null,
+          "val": "",
           "type": "text",
-          "autoGrow": false,
-          "rows": 2,
-          "desc": "彩云天气的Token，可以自行申请或者前往频道获取"
+          "desc": "彩云天气的Token，请在此处填写您的彩云天气Token"
         },
         {
-          "id": "@caiyun.token.tencent",
+          "id": "tencent_token",
           "name": "腾讯地图API Token",
           "val": "AHEBZ-ASTWX-CIW4P-7TV7T-AWKLS-7CFWP",
           "type": "text",
-          "rows": 1,
-          "desc": ""
-        },
-        {
-          "id": "@caiyun.display_location",
-          "name": "是否在日志中显示经纬度",
-          "val": false,
-          "type": "boolean",
-          "desc": ""
-        },
-        {
-          "id": "@caiyun.location.latitude",
-          "name": "纬度",
-          "val": null,
-          "type": "text",
-          "desc": "纬度，可以关闭MITM获取位置，手动设置"
-        },
-        {
-          "id": "@caiyun.location.longitude",
-          "name": "经度",
-          "val": null,
-          "type": "text",
-          "desc": "经度，可以关闭MITM获取位置，手动设置"
+          "desc": "腾讯地图的Token"
         }
       ],
       "author": "@Peng-YM",
@@ -63,34 +39,23 @@
       "script": "https://raw.githubusercontent.com/Peng-YM/QuanX/master/Tasks/caiyun.js"
     },
     {
-      "id": "TianAPI1",
-      "name": "天行数据 API Key 1",
-      "keys": ["@tianapi.key1"],
+      "id": "TianAPI",
+      "name": "天行数据配置",
+      "keys": ["tianapi_key1", "tianapi_key2"],
       "settings": [
         {
-          "id": "@tianapi.key1",
-          "name": "天行数据 API Key",
-          "val": "8fb6b3bc5bbe9ee420193601d13f9162",
-          "type": "text",
-          "desc": "请输入您的天行数据 API Key"
-        }
-      ],
-      "author": "Custom",
-      "icons": [
-        "https://raw.githubusercontent.com/Orz-3/mini/master/Color/api.png"
-      ]
-    },
-    {
-      "id": "TianAPI2",
-      "name": "天行数据 API Key 2",
-      "keys": ["@tianapi.key2"],
-      "settings": [
-        {
-          "id": "@tianapi.key2",
-          "name": "天行数据 API Key",
+          "id": "tianapi_key1",
+          "name": "天行数据 Key 1（天气诗句）",
           "val": "",
           "type": "text",
-          "desc": "请输入您的第二个天行数据 API Key"
+          "desc": "请输入您的天行数据 API Key 1"
+        },
+        {
+          "id": "tianapi_key2", 
+          "name": "天行数据 Key 2（早安心语）",
+          "val": "",
+          "type": "text",
+          "desc": "请输入您的天行数据 API Key 2"
         }
       ],
       "author": "Custom",
