@@ -1,6 +1,7 @@
 // 名称: 自动触发GPS更新
 // 描述: 自动打开天气App触发GPS拦截，然后关闭
 // 作者: Assistant
+// 修正: 修复了$loon拼写错误
 
 console.log("🔄 自动触发GPS更新启动");
 
@@ -20,9 +21,11 @@ function main() {
             autoTriggerWeatherApp();
         } else {
             console.log("✅ GPS数据新鲜，无需更新");
+            $done();
         }
     } else {
         console.log("💤 非更新时段，静默模式");
+        $done();
     }
 }
 
@@ -77,7 +80,7 @@ function checkGPSUpdateResult() {
             "请检查网络连接或手动打开天气App"
         );
     }
+    $done();
 }
 
 main();
-$done();
