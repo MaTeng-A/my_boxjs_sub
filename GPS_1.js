@@ -1,7 +1,7 @@
 // 名称: 最终版GPS拦截
 // 描述: 拦截天气GPS坐标并确保正常显示天气数据
 // 作者: Assistant
-// 版本: 2.0 - 稳定版
+// 版本: 2.1 - 优化通知频率版
 
 console.log("🎯 GPS拦截脚本启动");
 
@@ -33,6 +33,27 @@ if (typeof $request !== "undefined") {
     if (lat && lng) {
         console.log(`📍 成功提取坐标: ${lat}, ${lng}`);
         
+        // 检查是否是新位置或长时间未更新
+        const lastLocationData = $persistentStore.read("accurate_gps_location");
+        let shouldNotify = true;
+        
+        if (lastLocationData) {
+            try {
+                const lastLocation = JSON.parse(lastLocationData);
+                const sameLocation = (lastLocation.latitude === lat && lastLocation.longitude === lng);
+                const lastTime = parseInt($persistentStore.read("location_timestamp") || "0");
+                const timeDiff = Date.now() - lastTime;
+                
+                // 如果是相同位置且在10分钟内更新过，则不通知
+                if (sameLocation && timeDiff < 10 * 60 * 1000) {
+                    shouldNotify = false;
+                    console.log("📍 相同位置，跳过通知");
+                }
+            } catch (e) {
+                console.log("❌ 解析历史位置数据失败:", e);
+            }
+        }
+        
         // 保存GPS数据
         const locationData = {
             latitude: lat,
@@ -48,15 +69,14 @@ if (typeof $request !== "undefined") {
         
         console.log("💾 GPS数据已保存");
         
-        // 发送即时通知
-        $notification.post(
-            "📍 GPS定位成功", 
-            `纬度: ${lat}, 经度: ${lng}`,
-            `时间: ${new Date().toLocaleTimeString()}\n天气数据正常显示中...`
-        );
-        
-        // 可选：获取详细地址
-        getAddressDetails(lat, lng);
+        // 只在需要时发送通知（新位置或长时间未更新）
+        if (shouldNotify) {
+            $notification.post(
+                "📍 GPS定位成功", 
+                `纬度: ${lat}, 经度: ${lng}`,
+                `时间: ${new Date().toLocaleTimeString()}\n天气数据正常显示中...`
+            );
+        }
         
     } else {
         console.log("❌ 未找到坐标信息");
@@ -133,34 +153,5 @@ function getDetailedAddress(lat, lng, timeDiff) {
         
         $notification.post("📍 GPS定位状态", `坐标: ${lat}, ${lng}`, body);
         $done();
-    });
-}
-
-// 快速获取地址（不等待完成）
-function getAddressDetails(lat, lng) {
-    const TENCENT_TOKEN = "F7NBZ-MC3R3-6AV3J-RR75X-KKDTE-EKFLQ";
-    const geocoderUrl = `https://apis.map.qq.com/ws/geocoder/v1/?key=${TENCENT_TOKEN}&location=${lat},${lng}`;
-    
-    $httpClient.get(geocoderUrl, function(error, response, data) {
-        if (!error && response.status === 200) {
-            try {
-                const result = JSON.parse(data);
-                if (result.status === 0) {
-                    const address = result.result.address_component;
-                    let addressText = `${address.province}${address.city}${address.district}`;
-                    if (address.street) addressText += `${address.street}`;
-                    if (address.street_number) addressText += `${address.street_number}`;
-                    
-                    // 更新通知
-                    $notification.post(
-                        "📍 GPS定位详情", 
-                        `坐标: ${lat}, ${lng}`,
-                        `🏠 地址: ${addressText}\n⏰ 时间: ${new Date().toLocaleTimeString()}`
-                    );
-                }
-            } catch (e) {
-                // 静默失败，不处理
-            }
-        }
     });
 }
