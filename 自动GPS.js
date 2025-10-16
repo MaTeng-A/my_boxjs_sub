@@ -1,31 +1,22 @@
 // 名称: 自动触发GPS更新（兼容拦截脚本版）
 // 描述: 自动打开天气App触发GPS拦截，然后关闭
 // 作者: Assistant
-// 版本: 3.0 - 完全兼容拦截脚本
+// 版本: 3.1 - 全天执行版
 
 console.log("🔄 自动触发GPS更新启动");
 
 function main() {
-    const now = new Date();
-    const currentHour = now.getHours();
+    // 读取GPS时间戳
+    const gpsTimestamp = $persistentStore.read("location_timestamp");
+    const gpsAge = gpsTimestamp ? Math.round((Date.now() - parseInt(gpsTimestamp)) / 60000) : 999;
     
-    // 只在5:00-20:00之间执行
-    if (currentHour >= 5 && currentHour < 20) {
-        // 读取GPS时间戳
-        const gpsTimestamp = $persistentStore.read("location_timestamp");
-        const gpsAge = gpsTimestamp ? Math.round((Date.now() - parseInt(gpsTimestamp)) / 60000) : 999;
-        
-        console.log(`📊 GPS数据年龄: ${gpsAge}分钟`);
-        
-        if (gpsAge > 60) { // 超过1小时需要更新
-            console.log("🔄 自动触发天气App获取GPS");
-            autoTriggerWeatherApp();
-        } else {
-            console.log("✅ GPS数据新鲜，无需更新");
-            $done();
-        }
+    console.log(`📊 GPS数据年龄: ${gpsAge}分钟`);
+    
+    if (gpsAge > 120) { // 超过2小时需要更新
+        console.log("🔄 自动触发天气App获取GPS");
+        autoTriggerWeatherApp();
     } else {
-        console.log("💤 非更新时段，静默模式");
+        console.log("✅ GPS数据新鲜，无需更新");
         $done();
     }
 }
@@ -71,26 +62,38 @@ function checkGPSUpdateResult(startTime) {
                 console.log(`🎉 GPS数据已更新 - 坐标: ${location.latitude}, ${location.longitude}`);
                 console.log(`📡 数据来源: ${location.source}`);
                 
-                $notification.post(
-                    "📍 自动GPS更新成功", 
-                    `坐标: ${location.latitude}, ${location.longitude}`,
-                    `来源: ${location.source}\n天气App已自动刷新定位数据`
-                );
+                // 检查是否在23点至6点之间，如果是则不显示通知
+                const currentHour = new Date().getHours();
+                if (currentHour < 23 && currentHour >= 6) {
+                    $notification.post(
+                        "📍 自动GPS更新成功", 
+                        `坐标: ${location.latitude}, ${location.longitude}`,
+                        `来源: ${location.source}\n天气App已自动刷新定位数据`
+                    );
+                }
             } else {
                 console.log("⚠️ GPS数据未更新（时间戳验证失败）");
-                $notification.post(
-                    "❌ 自动GPS更新失败", 
-                    "获取到旧数据",
-                    "请重试或检查网络连接"
-                );
+                // 检查是否在23点至6点之间，如果是则不显示通知
+                const currentHour = new Date().getHours();
+                if (currentHour < 23 && currentHour >= 6) {
+                    $notification.post(
+                        "❌ 自动GPS更新失败", 
+                        "获取到旧数据",
+                        "请重试或检查网络连接"
+                    );
+                }
             }
         } catch (e) {
             console.log("❌ GPS数据解析失败:", e);
-            $notification.post(
-                "❌ GPS数据解析失败", 
-                "请检查数据格式",
-                e.toString()
-            );
+            // 检查是否在23点至6点之间，如果是则不显示通知
+            const currentHour = new Date().getHours();
+            if (currentHour < 23 && currentHour >= 6) {
+                $notification.post(
+                    "❌ GPS数据解析失败", 
+                    "请检查数据格式",
+                    e.toString()
+                );
+            }
         }
     } else {
         console.log("❌ GPS数据未更新");
@@ -98,17 +101,17 @@ function checkGPSUpdateResult(startTime) {
         console.log(`- location_timestamp: ${newTimestamp}`);
         console.log(`- accurate_gps_location: ${gpsData ? "存在" : "不存在"}`);
         
-        $notification.post(
-            "❌ 自动GPS更新失败", 
-            "未能获取新坐标",
-            "请检查Loon的GPS拦截配置或网络连接"
-        );
+        // 检查是否在23点至6点之间，如果是则不显示通知
+        const currentHour = new Date().getHours();
+        if (currentHour < 23 && currentHour >= 6) {
+            $notification.post(
+                "❌ 自动GPS更新失败", 
+                "未能获取新坐标",
+                "请检查Loon的GPS拦截配置或网络连接"
+            );
+        }
     }
     $done();
 }
 
 main();
-
-
-
-
