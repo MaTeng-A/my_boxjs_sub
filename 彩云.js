@@ -243,8 +243,8 @@ function processTodayWeather(weatherData, province, city, district, poetry, isLa
         // 构建通知内容 - 修改标题为统一的"诗意天气日报"
         const title = "🌤️ 诗意天气日报";
         
-        // 根据定位类型显示不同的图标
-        const locationIcon = locationType === "GPS" ? "📡" : "📍";
+        // 根据定位类型显示不同的图标 - GPS定位改为📍📡
+        const locationIcon = locationType === "GPS" ? "📍📡" : "📍";
         
         const subtitle = `${locationIcon}${province}${city}${district} (${minTemp}°C~${maxTemp}°C) | ${temperature}°C | ${weatherDesc}`;
         
@@ -339,8 +339,8 @@ function processTomorrowWeather(weatherData, province, city, district, locationT
         
         const title = "🌙 明日天气预告";
         
-        // 根据定位类型显示不同的图标
-        const locationIcon = locationType === "GPS" ? "📡" : "📍";
+        // 根据定位类型显示不同的图标 - GPS定位改为📍📡
+        const locationIcon = locationType === "GPS" ? "📍📡" : "📍";
         
         const subtitle = `${locationIcon}${province}${city}${district} 明日${tomorrowWeatherDesc}`;
         
