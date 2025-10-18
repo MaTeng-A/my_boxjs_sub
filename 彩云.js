@@ -37,12 +37,13 @@ function main() {
                             location.longitude, 
                             address.province, 
                             address.city, 
-                            address.district
+                            address.district,
+                            "GPS" // 传递定位类型
                         );
                     })
                     .catch(error => {
                         console.log("❌ 地址获取失败，使用坐标直接获取天气:", error);
-                        getCaiyunWeather(location.latitude, location.longitude, "", "", "");
+                        getCaiyunWeather(location.latitude, location.longitude, "", "", "", "GPS");
                     });
                 return;
             } else {
@@ -113,7 +114,7 @@ function getIPLocation() {
                 console.log(`📍 IP定位结果: ${province}${city}${district}`);
                 
                 // 获取天气数据
-                getCaiyunWeather(lat, lng, province, city, district);
+                getCaiyunWeather(lat, lng, province, city, district, "IP");
                 
             } else {
                 handleError("定位失败", result.message);
@@ -126,7 +127,7 @@ function getIPLocation() {
 }
 
 // === 获取彩云天气 ===
-function getCaiyunWeather(lat, lng, province, city, district) {
+function getCaiyunWeather(lat, lng, province, city, district, locationType) {
     const weatherUrl = `https://api.caiyunapp.com/v2.6/${CAIYUN_TOKEN}/${lng},${lat}/weather?alert=true`;
     
     console.log("⏳ 获取彩云天气数据...");
@@ -151,16 +152,16 @@ function getCaiyunWeather(lat, lng, province, city, district) {
                     console.log("🕙 22:17最后一次运行，发送双通知");
                     
                     // 先发送今日天气预报
-                    getTianapiData(weatherData, province, city, district, true);
+                    getTianapiData(weatherData, province, city, district, true, locationType);
                     
                     // 间隔1秒后发送明日天气预报
                     setTimeout(() => {
-                        processTomorrowWeather(weatherData, province, city, district);
+                        processTomorrowWeather(weatherData, province, city, district, locationType);
                     }, 1000);
                     
                 } else {
                     // 正常时段显示当天天气+诗句
-                    getTianapiData(weatherData, province, city, district, false);
+                    getTianapiData(weatherData, province, city, district, false, locationType);
                 }
                 
             } else {
@@ -173,7 +174,7 @@ function getCaiyunWeather(lat, lng, province, city, district) {
 }
 
 // === 获取天行数据（诗句）===
-function getTianapiData(weatherData, province, city, district, isLastRun) {
+function getTianapiData(weatherData, province, city, district, isLastRun, locationType) {
     const skycon = weatherData.result.realtime.skycon;
     const tqtype = getTianapiWeatherType(skycon);
     
@@ -202,12 +203,12 @@ function getTianapiData(weatherData, province, city, district, isLastRun) {
         }
         
         // 处理当天天气数据
-        processTodayWeather(weatherData, province, city, district, poetry, isLastRun);
+        processTodayWeather(weatherData, province, city, district, poetry, isLastRun, locationType);
     });
 }
 
 // === 处理当天天气数据 ===
-function processTodayWeather(weatherData, province, city, district, poetry, isLastRun) {
+function processTodayWeather(weatherData, province, city, district, poetry, isLastRun, locationType) {
     try {
         const realtime = weatherData.result.realtime;
         const hourly = weatherData.result.hourly;
@@ -239,20 +240,13 @@ function processTodayWeather(weatherData, province, city, district, poetry, isLa
         // 获取天气图标
         const weatherIconUrl = getWeatherIcon(skycon);
         
-        // 构建通知内容
-        const title = isLastRun ? "🌤️ 今日天气总结" : "🌤️ 诗意天气日报";
+        // 构建通知内容 - 修改标题为统一的"诗意天气日报"
+        const title = "🌤️ 诗意天气日报";
         
-        // 显示定位来源
-        const gpsData = $persistentStore.read("accurate_gps_location");
-        let locationSource = "📍";
-        if (gpsData) {
-            const location = JSON.parse(gpsData);
-            if (location.source === "weatherkit_apple_full") {
-                locationSource = "📍📡"; // GPS图标+信号图标
-            }
-        }
+        // 根据定位类型显示不同的图标
+        const locationIcon = locationType === "GPS" ? "📡" : "📍";
         
-        const subtitle = `${locationSource}${province}${city}${district} (${minTemp}°C~${maxTemp}°C) | ${temperature}°C | ${weatherDesc}`;
+        const subtitle = `${locationIcon}${province}${city}${district} (${minTemp}°C~${maxTemp}°C) | ${temperature}°C | ${weatherDesc}`;
         
         let body = "";
         
@@ -316,7 +310,7 @@ function processTodayWeather(weatherData, province, city, district, poetry, isLa
 }
 
 // === 处理明日天气预报 ===
-function processTomorrowWeather(weatherData, province, city, district) {
+function processTomorrowWeather(weatherData, province, city, district, locationType) {
     try {
         const daily = weatherData.result.daily;
         const realtime = weatherData.result.realtime;
@@ -344,7 +338,11 @@ function processTomorrowWeather(weatherData, province, city, district) {
         const airQuality = realtime.air_quality ? realtime.air_quality.description.chn : "未知";
         
         const title = "🌙 明日天气预告";
-        const subtitle = `📍${province}${city}${district} 明日${tomorrowWeatherDesc}`;
+        
+        // 根据定位类型显示不同的图标
+        const locationIcon = locationType === "GPS" ? "📡" : "📍";
+        
+        const subtitle = `${locationIcon}${province}${city}${district} 明日${tomorrowWeatherDesc}`;
         
         let body = "";
         body += `🌡️ 温度范围: ${tomorrowMinTemp}°C ~ ${tomorrowMaxTemp}°C\n`;
