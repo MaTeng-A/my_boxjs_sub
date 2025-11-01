@@ -1,7 +1,7 @@
 // 名称: 最终版GPS拦截
 // 描述: 拦截天气GPS坐标并确保正常显示天气数据
 // 作者: Assistant
-// 版本: 2.1 - 优化通知频率版
+// 版本: 2.2 - 无通知版
 
 console.log("🎯 GPS拦截脚本启动");
 
@@ -35,7 +35,7 @@ if (typeof $request !== "undefined") {
         
         // 检查是否是新位置或长时间未更新
         const lastLocationData = $persistentStore.read("accurate_gps_location");
-        let shouldNotify = true;
+        let shouldNotify = false; // 改为false，不发送通知
         
         if (lastLocationData) {
             try {
@@ -69,7 +69,8 @@ if (typeof $request !== "undefined") {
         
         console.log("💾 GPS数据已保存");
         
-        // 只在需要时发送通知（新位置或长时间未更新）
+        // 注释掉通知部分，不显示任何通知
+        /*
         if (shouldNotify) {
             $notification.post(
                 "📍 GPS定位成功", 
@@ -77,6 +78,7 @@ if (typeof $request !== "undefined") {
                 `时间: ${new Date().toLocaleTimeString()}\n天气数据正常显示中...`
             );
         }
+        */
         
     } else {
         console.log("❌ 未找到坐标信息");
@@ -104,16 +106,18 @@ if (typeof $request !== "undefined") {
             
         } catch (e) {
             console.log("❌ 数据解析失败:", e);
-            $notification.post("❌ GPS状态检查失败", "数据解析错误", e.message);
+            // 注释掉通知
+            // $notification.post("❌ GPS状态检查失败", "数据解析错误", e.message);
             $done();
         }
     } else {
         console.log("❌ 无GPS定位数据");
-        $notification.post(
-            "📍 GPS定位状态", 
-            "等待定位数据",
-            "请打开系统天气App触发GPS定位"
-        );
+        // 注释掉通知
+        // $notification.post(
+        //     "📍 GPS定位状态", 
+        //     "等待定位数据",
+        //     "请打开系统天气App触发GPS定位"
+        // );
         $done();
     }
 }
@@ -147,11 +151,18 @@ function getDetailedAddress(lat, lng, timeDiff) {
             addressText = "网络请求失败";
         }
         
+        // 注释掉通知，只保留控制台日志
+        console.log(`📍 GPS定位状态 - 坐标: ${lat}, ${lng}`);
+        console.log(`⏰ 更新时间: ${timeDiff}分钟前`);
+        console.log(`🏠 详细地址: ${addressText}`);
+        
+        /*
         const body = `⏰ 更新时间: ${timeDiff}分钟前\n` +
                     `🌎 经纬度: ${lat}, ${lng}\n\n` +
                     `🏠 详细地址:\n${addressText}`;
         
         $notification.post("📍 GPS定位状态", `坐标: ${lat}, ${lng}`, body);
+        */
         $done();
     });
 }
