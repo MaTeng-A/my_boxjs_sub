@@ -1,7 +1,7 @@
 // 名称: 自动触发GPS更新（兼容拦截脚本版）
 // 描述: 自动打开天气App触发GPS拦截，然后关闭
 // 作者: Assistant
-// 版本: 3.1 - 全天执行版
+// 版本: 3.2 - 无通知版
 
 console.log("🔄 自动触发GPS更新启动");
 
@@ -62,7 +62,8 @@ function checkGPSUpdateResult(startTime) {
                 console.log(`🎉 GPS数据已更新 - 坐标: ${location.latitude}, ${location.longitude}`);
                 console.log(`📡 数据来源: ${location.source}`);
                 
-                // 检查是否在23点至6点之间，如果是则不显示通知
+                // 注释掉所有通知，不再显示任何通知
+                /*
                 const currentHour = new Date().getHours();
                 if (currentHour < 23 && currentHour >= 6) {
                     $notification.post(
@@ -71,9 +72,11 @@ function checkGPSUpdateResult(startTime) {
                         `来源: ${location.source}\n天气App已自动刷新定位数据`
                     );
                 }
+                */
             } else {
                 console.log("⚠️ GPS数据未更新（时间戳验证失败）");
-                // 检查是否在23点至6点之间，如果是则不显示通知
+                // 注释掉通知
+                /*
                 const currentHour = new Date().getHours();
                 if (currentHour < 23 && currentHour >= 6) {
                     $notification.post(
@@ -82,10 +85,12 @@ function checkGPSUpdateResult(startTime) {
                         "请重试或检查网络连接"
                     );
                 }
+                */
             }
         } catch (e) {
             console.log("❌ GPS数据解析失败:", e);
-            // 检查是否在23点至6点之间，如果是则不显示通知
+            // 注释掉通知
+            /*
             const currentHour = new Date().getHours();
             if (currentHour < 23 && currentHour >= 6) {
                 $notification.post(
@@ -94,6 +99,7 @@ function checkGPSUpdateResult(startTime) {
                     e.toString()
                 );
             }
+            */
         }
     } else {
         console.log("❌ GPS数据未更新");
@@ -101,7 +107,8 @@ function checkGPSUpdateResult(startTime) {
         console.log(`- location_timestamp: ${newTimestamp}`);
         console.log(`- accurate_gps_location: ${gpsData ? "存在" : "不存在"}`);
         
-        // 检查是否在23点至6点之间，如果是则不显示通知
+        // 注释掉通知
+        /*
         const currentHour = new Date().getHours();
         if (currentHour < 23 && currentHour >= 6) {
             $notification.post(
@@ -110,6 +117,7 @@ function checkGPSUpdateResult(startTime) {
                 "请检查Loon的GPS拦截配置或网络连接"
             );
         }
+        */
     }
     $done();
 }
