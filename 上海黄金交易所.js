@@ -1,5 +1,5 @@
-// 上海黄金交易所数据脚本 - 真实历史数据版
-// 使用Loon的持久化存储来保存历史数据
+// 上海黄金交易所数据脚本 - 快速检查版
+// 先检查数据有效性，再决定是否发送后续通知
 
 const API_KEY = "f24e2fa4068b20c4d44fbff66b7745de";
 const API_URL = "http://web.juhe.cn/finance/gold/shgold";
@@ -9,90 +9,6 @@ function delay(ms) {
     return new Promise(resolve => setTimeout(resolve, ms));
 }
 
-// 获取或生成昨日数据
-function getYesterdayData(todayData, variety) {
-    // 从持久化存储中读取历史数据
-    const historyKey = `gold_history_${variety}`;
-    const historyData = $persistentStore.read(historyKey);
-    
-    if (historyData) {
-        try {
-            return JSON.parse(historyData);
-        } catch (e) {
-            console.log(`解析历史数据失败: ${e}`);
-        }
-    }
-    
-    // 如果没有历史数据，基于今日数据生成模拟数据
-    return generateSimulatedYesterdayData(todayData);
-}
-
-// 保存今日数据作为明天的昨日数据
-function saveTodayDataAsHistory(todayData, variety) {
-    if (!todayData || !variety) return;
-    
-    const historyData = {
-        open: formatNumber(todayData.openpri),
-        high: formatNumber(todayData.maxpri),
-        low: formatNumber(todayData.minpri),
-        close: formatNumber(todayData.latestpri),
-        change: todayData.limit || "--",
-        time: getYesterdayDate(),
-        variety: variety
-    };
-    
-    // 只保存有效数据
-    if (historyData.close !== "--" && historyData.open !== "--") {
-        const historyKey = `gold_history_${variety}`;
-        $persistentStore.write(JSON.stringify(historyData), historyKey);
-        console.log(`已保存 ${variety} 的历史数据`);
-    }
-}
-
-// 生成模拟的昨日数据（仅在无历史数据时使用）
-function generateSimulatedYesterdayData(todayData) {
-    const todayOpen = parseFloat(todayData.openpri);
-    
-    if (isNaN(todayOpen) || todayOpen <= 0) {
-        return {
-            open: "--",
-            high: "--",
-            low: "--",
-            close: "--",
-            change: "--",
-            time: "暂无历史数据"
-        };
-    }
-    
-    // 基于今日开盘价模拟昨日数据
-    const randomFactor = 0.98 + Math.random() * 0.04;
-    
-    const yesterdayClose = todayOpen;
-    const yesterdayOpen = (yesterdayClose * (0.995 + Math.random() * 0.01)).toFixed(2);
-    const yesterdayHigh = (yesterdayClose * (1 + Math.random() * 0.015)).toFixed(2);
-    const yesterdayLow = (yesterdayClose * (0.985 - Math.random() * 0.01)).toFixed(2);
-    
-    const dayBeforeClose = (parseFloat(yesterdayOpen) * 0.995).toFixed(2);
-    const yesterdayChange = ((yesterdayClose - dayBeforeClose) / dayBeforeClose * 100).toFixed(2);
-    
-    return {
-        open: yesterdayOpen,
-        high: yesterdayHigh,
-        low: yesterdayLow,
-        close: yesterdayClose.toFixed(2),
-        change: (yesterdayChange >= 0 ? '+' : '') + yesterdayChange + '%',
-        time: "模拟数据",
-        note: "基于今日开盘价模拟"
-    };
-}
-
-// 获取昨日日期
-function getYesterdayDate() {
-    const yesterday = new Date();
-    yesterday.setDate(yesterday.getDate() - 1);
-    return yesterday.toLocaleDateString('zh-CN');
-}
-
 (async () => {
     try {
         console.log("开始获取黄金数据...");
@@ -100,15 +16,21 @@ function getYesterdayDate() {
         const now = new Date();
         const goldData = await fetchGoldData();
         
-        // 根据数据判断市场状态
-        const isTradingTime = checkMarketStatusByData(goldData);
+        // 快速检查数据有效性
+        const hasValidData = quickDataCheck(goldData);
         console.log(`当前时间: ${now.toLocaleString('zh-CN')}`);
-        console.log(`市场状态: ${isTradingTime ? '交易中' : '已收盘'}`);
+        console.log(`数据有效性: ${hasValidData ? '有有效数据' : '无有效数据'}`);
         
-        // 发送多个单独通知
-        await sendMultipleNotifications(isTradingTime, now, goldData);
+        if (hasValidData) {
+            // 有数据：发送多个单独通知
+            await sendMultipleNotifications(now, goldData);
+            console.log("所有通知发送完成");
+        } else {
+            // 无数据：只发送市场收盘通知
+            await sendMarketCloseNotification(now);
+            console.log("市场收盘通知已发送");
+        }
         
-        console.log("所有通知发送完成");
         $done();
         
     } catch (error) {
@@ -122,80 +44,80 @@ function getYesterdayDate() {
     }
 })();
 
-// 通过数据判断市场状态
-function checkMarketStatusByData(apiData) {
+// 快速数据检查
+function quickDataCheck(apiData) {
     if (!apiData || !apiData.success || !apiData.data || apiData.data.length === 0) {
-        console.log("无数据或数据获取失败，判断为休市");
+        console.log("快速检查: 无数据或数据获取失败");
         return false;
     }
     
-    // 检查是否有品种有有效价格数据
-    const hasValidData = apiData.data.some(item => {
+    // 快速检查：只要有一个品种有有效价格数据
+    for (let i = 0; i < apiData.data.length; i++) {
+        const item = apiData.data[i];
         const price = parseFloat(item.latestpri);
-        return !isNaN(price) && price > 0;
-    });
-    
-    console.log(`数据有效性检查: ${hasValidData ? '有有效数据' : '无有效数据'}`);
-    return hasValidData;
-}
-
-// 发送多个单独通知
-async function sendMultipleNotifications(isTradingTime, currentTime, apiData) {
-    const timeStr = currentTime.toLocaleString('zh-CN');
-    const statusIcon = isTradingTime ? "🟢" : "🔴";
-    const statusText = isTradingTime ? "交易中" : "已收盘";
-    
-    // 1. 合并市场状态和风险提示通知
-    let marketMessage = `⏰ ${timeStr} ${statusIcon}\n`;
-    marketMessage += `📊 市场状态: ${statusText}\n\n`;
-    marketMessage += "⏰ 交易时间:\n";
-    marketMessage += "• 日盘: 09:00-15:30\n";
-    marketMessage += "• 夜盘: 20:00-02:30\n\n";
-    
-    if (!isTradingTime) {
-        marketMessage += "💤 当前市场已收盘，显示最新参考数据\n\n";
+        if (!isNaN(price) && price > 0) {
+            console.log("快速检查: 发现有效数据");
+            return true;
+        }
     }
     
-    // 添加风险提示到市场状态通知中
-    marketMessage += "📋 风险等级说明:\n";
-    marketMessage += "🟢 低风险(现货)\n🟡 中风险(迷你)\n🔴 高风险(杠杆)\n🔴🔴 极高风险(白银)\n\n";
-    marketMessage += "🔄 自动更新: 每30分钟";
+    console.log("快速检查: 无有效价格数据");
+    return false;
+}
+
+// 发送市场收盘通知
+async function sendMarketCloseNotification(currentTime) {
+    const timeStr = currentTime.toLocaleString('zh-CN');
+    
+    let message = `⏰ ${timeStr}\n`;
+    message += "🔴 市场状态: 已收盘\n\n";
+    message += "💤 当前市场已收盘，暂无交易数据\n\n";
+    message += "⏰ 交易时间:\n";
+    message += "• 日盘: 09:00-15:30\n";
+    message += "• 夜盘: 20:00-02:30\n\n";
+    message += "🔄 下次更新: 交易时间自动更新";
     
     $notification.post(
         "🛎 上海黄金交易所",
-        `${statusText} • 市场概览`,
+        "市场已收盘",
+        message
+    );
+    
+    console.log("市场收盘通知已发送");
+}
+
+// 发送多个单独通知
+async function sendMultipleNotifications(currentTime, apiData) {
+    const timeStr = currentTime.toLocaleString('zh-CN');
+    
+    // 1. 市场状态通知
+    let marketMessage = `⏰ ${timeStr}\n`;
+    marketMessage += "🟢 市场状态: 交易中\n\n";
+    marketMessage += "🛎 上海黄金交易所\n\n";
+    marketMessage += "⏰ 交易时间:\n";
+    marketMessage += "• 日盘: 09:00-15:30\n";
+    message += "• 夜盘: 20:00-02:30\n\n";
+    
+    // 添加风险提示
+    marketMessage += "📋 风险等级说明:\n";
+    marketMessage += "🟢 低风险(现货)\n🟡 中风险(迷你)\n🔴 高风险(杠杆)\n🔴🔴 极高风险(白银)\n\n";
+    marketMessage += "🔄 自动更新: 每小时";
+    
+    $notification.post(
+        "🛎 黄金市场概览",
+        `交易中 • 实时行情`,
         marketMessage
     );
     
-    console.log("合并市场状态通知已发送");
+    console.log("市场状态通知已发送");
     
     // 等待1秒
     await delay(1000);
     
-    // 2. 如果没有数据，发送错误通知
-    if (!apiData || !apiData.success || !apiData.data || apiData.data.length === 0) {
-        let errorMessage = "❌ 数据状态: ";
-        if (!apiData) {
-            errorMessage += "API请求未执行\n";
-        } else if (!apiData.success) {
-            errorMessage += `请求失败: ${apiData.error || '未知错误'}\n`;
-        } else {
-            errorMessage += "暂无关注品种数据\n";
-        }
-        
-        $notification.post(
-            "🛎 上海黄金交易所",
-            "数据获取失败",
-            errorMessage
-        );
-        console.log("错误通知已发送");
-        return;
-    }
-    
-    // 3. 为每个品种发送单独通知
+    // 2. 为每个品种发送单独通知
     for (let i = 0; i < apiData.data.length; i++) {
         const item = apiData.data[i];
-        await sendProductNotification(item, i + 1, apiData.data.length, isTradingTime);
+        await sendProductNotification(item, i + 1, apiData.data.length);
         
         // 如果不是最后一个通知，等待1秒
         if (i < apiData.data.length - 1) {
@@ -203,19 +125,74 @@ async function sendMultipleNotifications(isTradingTime, currentTime, apiData) {
         }
     }
     
-    // 4. 保存今日数据作为历史数据
-    if (isTradingTime) {
-        // 只在交易时间保存数据，避免保存收盘后的无效数据
-        apiData.data.forEach(item => {
-            saveTodayDataAsHistory(item, item.variety);
-        });
-    }
+    // 3. 保存当前数据作为上一数据
+    apiData.data.forEach(item => {
+        saveCurrentAsPrevious(item);
+    });
     
     console.log("所有品种通知发送完成");
 }
 
+// 获取上一数据
+function getPreviousData(variety) {
+    const previousKey = `gold_previous_${variety}`;
+    const previousData = $persistentStore.read(previousKey);
+    
+    if (previousData) {
+        try {
+            return JSON.parse(previousData);
+        } catch (e) {
+            console.log(`解析上一数据失败: ${e}`);
+        }
+    }
+    
+    return null;
+}
+
+// 保存当前数据为上一数据
+function saveCurrentAsPrevious(item) {
+    if (!item || !item.variety) return;
+    
+    const latestPrice = parseFloat(item.latestpri);
+    if (isNaN(latestPrice) || latestPrice <= 0) return;
+    
+    const previousData = {
+        price: formatNumber(item.latestpri),
+        change: item.limit || "--",
+        time: new Date().toLocaleTimeString('zh-CN'),
+        timestamp: Date.now()
+    };
+    
+    const previousKey = `gold_previous_${item.variety}`;
+    $persistentStore.write(JSON.stringify(previousData), previousKey);
+    console.log(`已保存 ${item.variety} 的上一数据`);
+}
+
+// 计算价格变化
+function calculatePriceChange(currentPrice, previousPrice) {
+    if (!currentPrice || !previousPrice || currentPrice === "--" || previousPrice === "--") {
+        return { value: "--", icon: "➖" };
+    }
+    
+    const current = parseFloat(currentPrice);
+    const previous = parseFloat(previousPrice);
+    
+    if (isNaN(current) || isNaN(previous) || previous === 0) {
+        return { value: "--", icon: "➖" };
+    }
+    
+    const change = ((current - previous) / previous) * 100;
+    const changeValue = change.toFixed(2) + '%';
+    const changeIcon = change > 0 ? "📈" : change < 0 ? "📉" : "➖";
+    
+    return {
+        value: (change > 0 ? '+' : '') + changeValue,
+        icon: changeIcon
+    };
+}
+
 // 发送单个品种通知
-async function sendProductNotification(item, currentIndex, totalCount, isTradingTime) {
+async function sendProductNotification(item, currentIndex, totalCount) {
     const riskLevel = getRiskLevel(item.variety);
     const description = getProductDescription(item.variety);
     const riskIcon = getRiskIcon(riskLevel);
@@ -236,39 +213,35 @@ async function sendProductNotification(item, currentIndex, totalCount, isTrading
         }
     }
     
-    // 获取昨日真实数据
-    const yesterdayData = getYesterdayData(item, item.variety);
+    // 获取上一数据
+    const previousData = getPreviousData(item.variety);
+    let previousPrice = "--";
+    let previousTime = "--";
+    let changeFromPrevious = { value: "--", icon: "➖" };
+    
+    if (previousData) {
+        previousPrice = previousData.price;
+        previousTime = previousData.time;
+        changeFromPrevious = calculatePriceChange(latestPrice, previousPrice);
+    }
     
     let message = `${riskIcon} ${item.variety} (${description})\n\n`;
     
-    // 添加市场状态提示
-    if (!isTradingTime) {
-        message += "📌 注: 市场已收盘，以下为参考数据\n\n";
-    }
-    
-    // 今日数据
-    message += "📅 今日数据:\n";
+    // 实时数据
+    message += "📊 实时行情:\n";
     message += `💰 最新价格: ${latestPrice} ${trendIcon}\n`;
     message += `📈 涨跌幅: ${limitChange}\n`;
     message += `🔼 开盘: ${openPrice}\n`;
     message += `🔼 最高: ${highPrice}\n`;
     message += `🔽 最低: ${lowPrice}\n\n`;
     
-    // 昨日数据 - 使用真实历史数据
-    message += "📅 昨日数据:\n";
-    message += `🔼 开盘: ${yesterdayData.open}\n`;
-    message += `🔼 最高: ${yesterdayData.high}\n`;
-    message += `🔽 最低: ${yesterdayData.low}\n`;
-    message += `💰 收盘: ${yesterdayData.close}\n`;
-    message += `📈 涨跌: ${yesterdayData.change}\n`;
-    message += `⏰ 更新: ${yesterdayData.time}`;
+    // 上一数据
+    message += "📊 上一数据:\n";
+    message += `💰 价格: ${previousPrice}\n`;
+    message += `${changeFromPrevious.icon} 变化: ${changeFromPrevious.value}\n`;
+    message += `⏰ 时间: ${previousTime}\n\n`;
     
-    // 如果是模拟数据，添加说明
-    if (yesterdayData.note) {
-        message += ` (${yesterdayData.note})`;
-    }
-    
-    message += `\n\n⏰ 今日更新: ${formatTime(item.time)}\n`;
+    message += `⏰ 本次更新: ${formatTime(item.time)}\n`;
     message += `📱 ${currentIndex}/${totalCount}`;
     
     $notification.post(
@@ -280,7 +253,7 @@ async function sendProductNotification(item, currentIndex, totalCount, isTrading
     console.log(`品种通知已发送: ${item.variety} (${currentIndex}/${totalCount})`);
 }
 
-// 新增：专门处理涨跌幅数据
+// 专门处理涨跌幅数据
 function formatLimitChange(limit) {
     if (!limit || limit === '--') return '--';
     
@@ -299,7 +272,7 @@ function formatLimitChange(limit) {
     return (num >= 0 ? '+' : '') + num.toFixed(2) + '%';
 }
 
-// 其余函数保持不变...
+// 获取黄金数据
 function fetchGoldData() {
     return new Promise((resolve) => {
         const url = `${API_URL}?key=${API_KEY}&v=1`;
@@ -347,6 +320,7 @@ function fetchGoldData() {
     });
 }
 
+// 处理API数据
 function processApiData(apiResult) {
     if (!apiResult) return [];
     
@@ -400,7 +374,7 @@ function processApiData(apiResult) {
     return filteredData;
 }
 
-// 辅助函数保持不变
+// 风险等级
 function getRiskLevel(variety) {
     const riskMap = {
         "Au99.99": "low",
@@ -413,6 +387,7 @@ function getRiskLevel(variety) {
     return riskMap[variety] || "medium";
 }
 
+// 风险图标
 function getRiskIcon(riskLevel) {
     const iconMap = {
         "low": "🟢",
@@ -423,6 +398,7 @@ function getRiskIcon(riskLevel) {
     return iconMap[riskLevel] || "🟡";
 }
 
+// 品种描述
 function getProductDescription(variety) {
     const descriptions = {
         "Au99.99": "标准现货黄金",
@@ -435,12 +411,14 @@ function getProductDescription(variety) {
     return descriptions[variety] || "贵金属投资";
 }
 
+// 格式化数字
 function formatNumber(value) {
     if (!value || value === '--' || value === 'NaN') return '--';
     const num = parseFloat(value);
     return isNaN(num) ? '--' : num.toFixed(2);
 }
 
+// 格式化时间
 function formatTime(timeStr) {
     if (!timeStr) return '--';
     return timeStr.split(' ')[1] || timeStr;
