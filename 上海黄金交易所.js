@@ -96,7 +96,7 @@ async function sendMultipleNotifications(currentTime, apiData) {
     marketMessage += "🛎 上海黄金交易所\n\n";
     marketMessage += "⏰ 交易时间:\n";
     marketMessage += "• 日盘: 09:00-15:30\n";
-    message += "• 夜盘: 20:00-02:30\n\n";
+    marketMessage += "• 夜盘: 20:00-02:30\n\n";
     
     // 添加风险提示
     marketMessage += "📋 风险等级说明:\n";
