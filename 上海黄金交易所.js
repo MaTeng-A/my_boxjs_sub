@@ -1,6 +1,4 @@
-// 上海黄金交易所数据脚本 - 快速检查版
-// 先检查数据有效性，再决定是否发送后续通知
-
+// 上海黄金交易所数据脚本 - 保留所有原始品种
 const API_KEY = "f24e2fa4068b20c4d44fbff66b7745de";
 const API_URL = "http://web.juhe.cn/finance/gold/shgold";
 
@@ -203,6 +201,7 @@ async function sendProductNotification(item, currentIndex, totalCount) {
     const openPrice = formatNumber(item.openpri);
     const highPrice = formatNumber(item.maxpri);
     const lowPrice = formatNumber(item.minpri);
+    const volume = item.totalvol || "--";
     
     // 判断趋势（如果有有效数据）
     let trendIcon = "➖"; // 默认中性
@@ -233,7 +232,8 @@ async function sendProductNotification(item, currentIndex, totalCount) {
     message += `📈 涨跌幅: ${limitChange}\n`;
     message += `🔼 开盘: ${openPrice}\n`;
     message += `🔼 最高: ${highPrice}\n`;
-    message += `🔽 最低: ${lowPrice}\n\n`;
+    message += `🔽 最低: ${lowPrice}\n`;
+    message += `📊 成交量: ${volume}\n\n`;
     
     // 上一数据
     message += "📊 上一数据:\n";
@@ -320,7 +320,7 @@ function fetchGoldData() {
     });
 }
 
-// 处理API数据
+// 处理API数据 - 保留所有原始品种
 function processApiData(apiResult) {
     if (!apiResult) return [];
     
@@ -344,14 +344,9 @@ function processApiData(apiResult) {
     
     console.log("提取到的总品种数: " + allProducts.length);
     
-    // 修正品种名称映射
+    // 只修正明显错误的品种名称，不进行去重
     const nameCorrections = {
-        "Aug9.99": "Au99.99",
-        "Aug9.95": "Au99.95", 
-        "MAUTD": "mAu(T+D)",
-        "Ag(7+D)": "Ag(T+D)",
-        "Au(7+D)": "Au(T+D)",
-        "Au1000": "Au100g"
+        "MAUTD": "mAu(T+D)" // 只修正这个明显的错误
     };
     
     // 应用名称修正
@@ -371,6 +366,48 @@ function processApiData(apiResult) {
     
     console.log("过滤后的关注品种数: " + filteredData.length);
     
+    // 检查哪些目标品种缺失
+    const missingProducts = targetProducts.filter(product => 
+        !filteredData.some(item => item.variety === product)
+    );
+    
+    if (missingProducts.length > 0) {
+        console.log("缺失的品种: " + missingProducts.join(", "));
+    }
+    
+    // 记录所有品种信息但不发送通知，按数据有效性排序
+    console.log("所有可用品种 (有数据在前):");
+    
+    // 分离有数据和无数据的品种
+    const validProducts = [];
+    const invalidProducts = [];
+    
+    allProducts.forEach(product => {
+        const hasValidData = product.latestpri && 
+                            product.latestpri !== "—" && 
+                            product.latestpri !== "--" && 
+                            product.latestpri !== "-" &&
+                            !isNaN(parseFloat(product.latestpri));
+        
+        if (hasValidData) {
+            validProducts.push(product);
+        } else {
+            invalidProducts.push(product);
+        }
+    });
+    
+    // 显示有数据的品种
+    validProducts.forEach((product, index) => {
+        const description = getProductDescription(product.variety);
+        console.log(`  ${index + 1}. ${product.variety} (${description}): ${product.latestpri} ${product.limit}`);
+    });
+    
+    // 显示无数据的品种
+    invalidProducts.forEach((product, index) => {
+        const description = getProductDescription(product.variety);
+        console.log(`  ${validProducts.length + index + 1}. ${product.variety} (${description}): — 无数据`);
+    });
+    
     return filteredData;
 }
 
@@ -382,7 +419,8 @@ function getRiskLevel(variety) {
         "PGC30g": "low",
         "mAu(T+D)": "medium",
         "Au(T+D)": "high",
-        "Ag(T+D)": "very-high"
+        "Ag(T+D)": "very-high",
+        "AU99.99": "low" // 添加大写版本的品种
     };
     return riskMap[variety] || "medium";
 }
@@ -398,7 +436,7 @@ function getRiskIcon(riskLevel) {
     return iconMap[riskLevel] || "🟡";
 }
 
-// 品种描述
+// 品种描述 - 扩展所有品种的中文注释
 function getProductDescription(variety) {
     const descriptions = {
         "Au99.99": "标准现货黄金",
@@ -406,14 +444,25 @@ function getProductDescription(variety) {
         "PGC30g": "熊猫金币",
         "Au(T+D)": "黄金延期",
         "mAu(T+D)": "迷你黄金",
-        "Ag(T+D)": "白银延期"
+        "Ag(T+D)": "白银延期",
+        "AU99.99": "标准现货黄金(大写)", // 为大写版本添加注释
+        "Au99.95": "标准二号金",
+        "Au(T+N1)": "黄金延期一月",
+        "Au(T+N2)": "黄金延期二月",
+        "Au50g": "50克金条",
+        "Ag99.99": "标准现货白银",
+        "Pt99.95": "铂金99.95",
+        "AU995": "标准一号金",
+        "iAu99.99": "国际版黄金99.99",
+        "IAU100G": "国际版100克金",
+        "IAU99.5": "国际版黄金99.5"
     };
     return descriptions[variety] || "贵金属投资";
 }
 
 // 格式化数字
 function formatNumber(value) {
-    if (!value || value === '--' || value === 'NaN') return '--';
+    if (!value || value === '--' || value === 'NaN' || value === '—' || value === '-') return '--';
     const num = parseFloat(value);
     return isNaN(num) ? '--' : num.toFixed(2);
 }
