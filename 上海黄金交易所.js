@@ -1,6 +1,18 @@
 // 上海黄金交易所数据脚本 - 简洁日志格式
-const API_KEY = "f24e2fa4068b20c4d44fbff66b7745de";
+const API_KEY = "f24e2fa40688b20c4d44fbff66b7745de";
 const API_URL = "http://web.juhe.cn/finance/gold/shgold";
+
+// 交易时间配置
+const TRADING_HOURS = {
+    day: {
+        start: { hour: 9, minute: 0 },   // 日盘开始 09:00
+        end: { hour: 15, minute: 30 }    // 日盘结束 15:30
+    },
+    night: {
+        start: { hour: 20, minute: 0 },  // 夜盘开始 20:00
+        end: { hour: 2, minute: 30 }     // 夜盘结束 02:30（次日）
+    }
+};
 
 // Loon兼容延迟函数
 function delay(ms) {
@@ -12,10 +24,16 @@ function delay(ms) {
         console.log("开始获取黄金数据...");
         
         const now = new Date();
+        
+        // 首先检查是否在交易时间内
+        const isTrading = isTradingTime(now);
+        console.log(`当前时间: ${now.toLocaleString('zh-CN')}`);
+        console.log(`交易状态: ${isTrading ? '交易中' : '非交易时间'}`);
+        
         const goldData = await fetchGoldData();
         
-        // 快速检查数据有效性
-        const hasValidData = quickDataCheck(goldData);
+        // 只有在交易时间内才检查数据有效性
+        const hasValidData = isTrading ? quickDataCheck(goldData) : false;
         
         // 显示基本统计信息
         console.log(`获取到 ${goldData.resultCount || 0} 个结果元素`);
@@ -37,9 +55,16 @@ function delay(ms) {
         } else {
             // 显示所有品种但标记为无数据
             await displayAllProductsNoData(goldData);
-            // 无数据：只发送市场收盘通知
-            await sendMarketCloseNotification(now);
-            console.log("市场收盘通知已发送");
+            
+            if (isTrading) {
+                // 交易时间内但无有效数据
+                await sendMarketDataErrorNotification(now);
+                console.log("市场数据异常通知已发送");
+            } else {
+                // 非交易时间：发送市场收盘通知
+                await sendMarketCloseNotification(now);
+                console.log("市场收盘通知已发送");
+            }
         }
         
         $done();
@@ -54,6 +79,39 @@ function delay(ms) {
         $done();
     }
 })();
+
+// ⏰ 检查是否在交易时间内
+function isTradingTime(now) {
+    const hour = now.getHours();
+    const minute = now.getMinutes();
+    const currentMinutes = hour * 60 + minute;
+    
+    // 日盘时间检查 (09:00 - 15:30)
+    const dayStart = TRADING_HOURS.day.start.hour * 60 + TRADING_HOURS.day.start.minute; // 09:00 = 540分钟
+    const dayEnd = TRADING_HOURS.day.end.hour * 60 + TRADING_HOURS.day.end.minute;       // 15:30 = 930分钟
+    
+    // 夜盘时间检查 (20:00 - 次日02:30)
+    const nightStart = TRADING_HOURS.night.start.hour * 60 + TRADING_HOURS.night.start.minute; // 20:00 = 1200分钟
+    const nightEnd = TRADING_HOURS.night.end.hour * 60 + TRADING_HOURS.night.end.minute;       // 02:30 = 150分钟
+    
+    // 检查日盘
+    if (currentMinutes >= dayStart && currentMinutes <= dayEnd) {
+        return true;
+    }
+    
+    // 检查夜盘（跨天情况）
+    if (hour >= TRADING_HOURS.night.start.hour || hour < TRADING_HOURS.night.end.hour) {
+        if (hour >= TRADING_HOURS.night.start.hour) {
+            // 20:00 之后
+            return currentMinutes >= nightStart;
+        } else {
+            // 02:30 之前
+            return currentMinutes <= nightEnd;
+        }
+    }
+    
+    return false;
+}
 
 // 📊 显示所有品种详细数据（有数据时）
 async function displayAllProductsData(goldData) {
@@ -117,8 +175,15 @@ async function displayAllProductsNoData(goldData) {
     
     console.log("## 所有黄金品种状态");
     console.log("");
-    console.log("所有品种当前均无交易数据");
-    console.log("市场已收盘，等待下一个交易时段");
+    
+    const isTrading = isTradingTime(new Date());
+    if (isTrading) {
+        console.log("⚠️ 交易时间内但无有效数据");
+        console.log("可能原因：数据源异常或网络问题");
+    } else {
+        console.log("所有品种当前均无交易数据");
+        console.log("市场已收盘，等待下一个交易时段");
+    }
     console.log("");
     
     allProducts.forEach((product, index) => {
@@ -173,6 +238,26 @@ async function sendMarketCloseNotification(currentTime) {
     $notification.post(
         "🛎 上海黄金交易所",
         "市场已收盘",
+        message
+    );
+}
+
+// ⚠️ 发送市场数据异常通知
+async function sendMarketDataErrorNotification(currentTime) {
+    const timeStr = currentTime.toLocaleString('zh-CN');
+    
+    let message = `⏰ ${timeStr}\n`;
+    message += "🟡 市场状态: 交易中但数据异常\n\n";
+    message += "⚠️ 当前在交易时间内，但未能获取到有效数据\n\n";
+    message += "可能原因:\n";
+    message += "• 数据源暂时不可用\n";
+    message += "• 网络连接问题\n";
+    message += "• API限制\n\n";
+    message += "🔄 系统将在下次更新时重试";
+    
+    $notification.post(
+        "🛎 上海黄金交易所",
+        "数据获取异常",
         message
     );
 }
