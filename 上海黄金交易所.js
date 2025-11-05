@@ -1,4 +1,4 @@
-// 上海黄金交易所数据脚本 - 保留所有原始品种
+// 上海黄金交易所数据脚本 - 简洁日志格式
 const API_KEY = "f24e2fa4068b20c4d44fbff66b7745de";
 const API_URL = "http://web.juhe.cn/finance/gold/shgold";
 
@@ -16,14 +16,27 @@ function delay(ms) {
         
         // 快速检查数据有效性
         const hasValidData = quickDataCheck(goldData);
-        console.log(`当前时间: ${now.toLocaleString('zh-CN')}`);
-        console.log(`数据有效性: ${hasValidData ? '有有效数据' : '无有效数据'}`);
+        
+        // 显示基本统计信息
+        console.log(`获取到 ${goldData.resultCount || 0} 个结果元素`);
+        if (goldData.allProducts) {
+            console.log(`总共提取到 ${goldData.allProducts.length} 个有效黄金品种`);
+            
+            const validCount = goldData.allProducts.filter(item => hasValidPriceData(item)).length;
+            console.log(`时间有效的品种：${validCount}/${goldData.allProducts.length}`);
+        }
+        
+        console.log("---");
         
         if (hasValidData) {
-            // 有数据：发送多个单独通知
+            // 显示所有品种详细数据
+            await displayAllProductsData(goldData);
+            // 发送多个单独通知
             await sendMultipleNotifications(now, goldData);
             console.log("所有通知发送完成");
         } else {
+            // 显示所有品种但标记为无数据
+            await displayAllProductsNoData(goldData);
             // 无数据：只发送市场收盘通知
             await sendMarketCloseNotification(now);
             console.log("市场收盘通知已发送");
@@ -42,28 +55,110 @@ function delay(ms) {
     }
 })();
 
-// 快速数据检查
+// 📊 显示所有品种详细数据（有数据时）
+async function displayAllProductsData(goldData) {
+    if (!goldData.success || !goldData.allProducts) {
+        console.log("无有效数据");
+        return;
+    }
+    
+    console.log("## 所有黄金品种详细信息");
+    console.log("");
+    
+    const allProducts = goldData.allProducts;
+    
+    // 按数据有效性排序：有数据的在前
+    const sortedProducts = allProducts.sort((a, b) => {
+        const aValid = hasValidPriceData(a);
+        const bValid = hasValidPriceData(b);
+        if (aValid && !bValid) return -1;
+        if (!aValid && bValid) return 1;
+        return 0;
+    });
+    
+    sortedProducts.forEach((product, index) => {
+        const number = (index + 1).toString().padStart(2, '0');
+        const riskIcon = getRiskIcon(getRiskLevel(product.variety));
+        const description = getProductDescription(product.variety);
+        
+        console.log(`${number}. ${riskIcon} ${product.variety} - ${description}`);
+        
+        if (hasValidPriceData(product)) {
+            const latestPrice = formatNumber(product.latestpri);
+            const limitChange = formatLimitChange(product.limit);
+            const trendIcon = getTrendIcon(limitChange);
+            const openPrice = formatNumber(product.openpri);
+            const highPrice = formatNumber(product.maxpri);
+            const lowPrice = formatNumber(product.minpri);
+            const volume = formatVolume(product.totalvol);
+            const updateTime = formatTime(product.time);
+            const yesPrice = formatNumber(product.yespri);
+            
+            // 计算涨跌点数
+            const changePoints = calculateChangePoints(product.latestpri, product.yespri);
+            
+            console.log(`最新价：${latestPrice}`);
+            console.log(`涨跌：${changePoints} (${limitChange}) ${trendIcon}`);
+            console.log(`今开：${openPrice} | 昨收：${yesPrice}`);
+            console.log(`最高：${highPrice} | 最低：${lowPrice}`);
+            console.log(`成交量：${volume}`);
+            console.log(`更新时间：${updateTime}`);
+        } else {
+            console.log(`无交易数据`);
+        }
+        
+        console.log(""); // 空行分隔
+    });
+}
+
+// 📊 显示所有品种无数据状态
+async function displayAllProductsNoData(goldData) {
+    const allProducts = goldData.allProducts || [];
+    
+    console.log("## 所有黄金品种状态");
+    console.log("");
+    console.log("所有品种当前均无交易数据");
+    console.log("市场已收盘，等待下一个交易时段");
+    console.log("");
+    
+    allProducts.forEach((product, index) => {
+        const number = (index + 1).toString().padStart(2, '0');
+        const riskIcon = getRiskIcon(getRiskLevel(product.variety));
+        const description = getProductDescription(product.variety);
+        
+        console.log(`${number}. ${riskIcon} ${product.variety} - ${description}`);
+    });
+    
+    console.log("");
+    console.log(`品种总数：${allProducts.length}`);
+}
+
+// 🔍 快速数据检查
 function quickDataCheck(apiData) {
     if (!apiData || !apiData.success || !apiData.data || apiData.data.length === 0) {
-        console.log("快速检查: 无数据或数据获取失败");
         return false;
     }
     
     // 快速检查：只要有一个品种有有效价格数据
     for (let i = 0; i < apiData.data.length; i++) {
         const item = apiData.data[i];
-        const price = parseFloat(item.latestpri);
-        if (!isNaN(price) && price > 0) {
-            console.log("快速检查: 发现有效数据");
+        if (hasValidPriceData(item)) {
             return true;
         }
     }
     
-    console.log("快速检查: 无有效价格数据");
     return false;
 }
 
-// 发送市场收盘通知
+// 🔍 检查单个品种是否有有效价格数据
+function hasValidPriceData(item) {
+    if (!item || !item.latestpri) return false;
+    
+    const price = parseFloat(item.latestpri);
+    return !isNaN(price) && price > 0;
+}
+
+// ⏰ 发送市场收盘通知
 async function sendMarketCloseNotification(currentTime) {
     const timeStr = currentTime.toLocaleString('zh-CN');
     
@@ -80,12 +175,10 @@ async function sendMarketCloseNotification(currentTime) {
         "市场已收盘",
         message
     );
-    
-    console.log("市场收盘通知已发送");
 }
 
-// 发送多个单独通知
-async function sendMultipleNotifications(currentTime, apiData) {
+// 🔔 发送多个单独通知（只发送目标品种）
+async function sendMultipleNotifications(currentTime, goldData) {
     const timeStr = currentTime.toLocaleString('zh-CN');
     
     // 1. 市场状态通知
@@ -107,31 +200,57 @@ async function sendMultipleNotifications(currentTime, apiData) {
         marketMessage
     );
     
-    console.log("市场状态通知已发送");
-    
     // 等待1秒
     await delay(1000);
     
-    // 2. 为每个品种发送单独通知
-    for (let i = 0; i < apiData.data.length; i++) {
-        const item = apiData.data[i];
-        await sendProductNotification(item, i + 1, apiData.data.length);
-        
-        // 如果不是最后一个通知，等待1秒
-        if (i < apiData.data.length - 1) {
-            await delay(1000);
+    // 2. 为目标品种发送单独通知
+    const targetProducts = goldData.data || [];
+    for (let i = 0; i < targetProducts.length; i++) {
+        const item = targetProducts[i];
+        if (hasValidPriceData(item)) {
+            await sendProductNotification(item, i + 1, targetProducts.length);
+            
+            // 如果不是最后一个通知，等待1秒
+            if (i < targetProducts.length - 1) {
+                await delay(1000);
+            }
         }
     }
     
     // 3. 保存当前数据作为上一数据
-    apiData.data.forEach(item => {
-        saveCurrentAsPrevious(item);
+    targetProducts.forEach(item => {
+        if (hasValidPriceData(item)) {
+            saveCurrentAsPrevious(item);
+        }
     });
-    
-    console.log("所有品种通知发送完成");
 }
 
-// 获取上一数据
+// 📈 计算涨跌点数
+function calculateChangePoints(latestPrice, previousPrice) {
+    if (!latestPrice || !previousPrice || latestPrice === "--" || previousPrice === "--") {
+        return "--";
+    }
+    
+    const current = parseFloat(latestPrice);
+    const previous = parseFloat(previousPrice);
+    
+    if (isNaN(current) || isNaN(previous)) {
+        return "--";
+    }
+    
+    const change = current - previous;
+    return (change > 0 ? "+" : "") + change.toFixed(2);
+}
+
+// 📈 获取趋势图标
+function getTrendIcon(limitChange) {
+    if (limitChange === '--' || limitChange === 'NaN%') return "";
+    const changeValue = parseFloat(limitChange);
+    if (isNaN(changeValue)) return "";
+    return changeValue > 0 ? "🔺" : changeValue < 0 ? "🔻" : "";
+}
+
+// 💾 获取上一数据
 function getPreviousData(variety) {
     const previousKey = `gold_previous_${variety}`;
     const previousData = $persistentStore.read(previousKey);
@@ -147,7 +266,7 @@ function getPreviousData(variety) {
     return null;
 }
 
-// 保存当前数据为上一数据
+// 💾 保存当前数据为上一数据
 function saveCurrentAsPrevious(item) {
     if (!item || !item.variety) return;
     
@@ -163,10 +282,9 @@ function saveCurrentAsPrevious(item) {
     
     const previousKey = `gold_previous_${item.variety}`;
     $persistentStore.write(JSON.stringify(previousData), previousKey);
-    console.log(`已保存 ${item.variety} 的上一数据`);
 }
 
-// 计算价格变化
+// 📊 计算价格变化
 function calculatePriceChange(currentPrice, previousPrice) {
     if (!currentPrice || !previousPrice || currentPrice === "--" || previousPrice === "--") {
         return { value: "--", icon: "➖" };
@@ -189,7 +307,7 @@ function calculatePriceChange(currentPrice, previousPrice) {
     };
 }
 
-// 发送单个品种通知
+// 🔔 发送单个品种通知
 async function sendProductNotification(item, currentIndex, totalCount) {
     const riskLevel = getRiskLevel(item.variety);
     const description = getProductDescription(item.variety);
@@ -203,14 +321,8 @@ async function sendProductNotification(item, currentIndex, totalCount) {
     const lowPrice = formatNumber(item.minpri);
     const volume = item.totalvol || "--";
     
-    // 判断趋势（如果有有效数据）
-    let trendIcon = "➖"; // 默认中性
-    if (limitChange !== '--' && limitChange !== 'NaN%') {
-        const changeValue = parseFloat(limitChange);
-        if (!isNaN(changeValue)) {
-            trendIcon = changeValue < 0 ? "🔻" : "🔺";
-        }
-    }
+    // 判断趋势
+    const trendIcon = getTrendIcon(limitChange);
     
     // 获取上一数据
     const previousData = getPreviousData(item.variety);
@@ -249,11 +361,9 @@ async function sendProductNotification(item, currentIndex, totalCount) {
         `${item.variety} ${latestPrice} ${trendIcon}`,
         message
     );
-    
-    console.log(`品种通知已发送: ${item.variety} (${currentIndex}/${totalCount})`);
 }
 
-// 专门处理涨跌幅数据
+// 📈 专门处理涨跌幅数据
 function formatLimitChange(limit) {
     if (!limit || limit === '--') return '--';
     
@@ -272,11 +382,26 @@ function formatLimitChange(limit) {
     return (num >= 0 ? '+' : '') + num.toFixed(2) + '%';
 }
 
-// 获取黄金数据
+// 🔢 格式化成交量
+function formatVolume(volume) {
+    if (!volume || volume === '--' || volume === 'NaN') return '--';
+    
+    const num = parseFloat(volume);
+    if (isNaN(num)) return '--';
+    
+    if (num >= 1000000) {
+        return (num / 1000000).toFixed(2) + '万手';
+    } else if (num >= 1000) {
+        return (num / 1000).toFixed(2) + '千手';
+    }
+    
+    return num.toFixed(0) + '手';
+}
+
+// 🌐 获取黄金数据
 function fetchGoldData() {
     return new Promise((resolve) => {
         const url = `${API_URL}?key=${API_KEY}&v=1`;
-        console.log("请求URL: " + url);
         
         $httpClient.get(url, (error, response, data) => {
             if (error) {
@@ -286,23 +411,21 @@ function fetchGoldData() {
             }
             
             try {
-                console.log("API响应状态: " + response.status);
                 const result = JSON.parse(data);
                 
                 if (result.error_code === 0) {
-                    console.log("API返回数据成功");
-                    
-                    // 处理异常数据格式
+                    // 处理API数据，获取所有品种
                     const processedData = processApiData(result.result);
-                    console.log("处理后的数据条数: "+ processedData.length);
                     
                     resolve({
                         success: true, 
-                        data: processedData,
+                        data: processedData.filteredData,
+                        allProducts: processedData.allProducts,
+                        resultCount: processedData.resultCount,
                         reason: result.reason
                     });
                 } else {
-                    console.log(`API错误: ${result.reason} (${result.error_code})`);
+                    console.log(`API错误: ${result.reason}`);
                     resolve({
                         success: false, 
                         error: result.reason,
@@ -320,16 +443,18 @@ function fetchGoldData() {
     });
 }
 
-// 处理API数据 - 保留所有原始品种
+// 🔧 处理API数据 - 返回所有品种
 function processApiData(apiResult) {
-    if (!apiResult) return [];
-    
-    console.log("原始API结果类型: " + typeof apiResult);
+    if (!apiResult) return { allProducts: [], filteredData: [], resultCount: 0 };
     
     let allProducts = [];
+    let resultCount = 0;
+    
+    console.log(`获取到 ${Array.isArray(apiResult) ? apiResult.length : 0} 个结果元素`);
     
     // API返回的是一个数组，但第一个元素是一个包含所有品种的大对象
     if (Array.isArray(apiResult) && apiResult.length > 0) {
+        resultCount = apiResult.length;
         const firstItem = apiResult[0];
         
         if (typeof firstItem === 'object') {
@@ -340,9 +465,9 @@ function processApiData(apiResult) {
                 }
             });
         }
+        
+        console.log(`处理第 1 个结果元素，包含 ${allProducts.length} 个品种`);
     }
-    
-    console.log("提取到的总品种数: " + allProducts.length);
     
     // 只修正明显错误的品种名称，不进行去重
     const nameCorrections = {
@@ -352,122 +477,81 @@ function processApiData(apiResult) {
     // 应用名称修正
     allProducts.forEach(product => {
         if (nameCorrections[product.variety]) {
-            console.log(`修正品种名称: ${product.variety} -> ${nameCorrections[product.variety]}`);
             product.variety = nameCorrections[product.variety];
         }
     });
     
-    // 个人投资者关注的品种
+    // 个人投资者关注的品种（用于通知）
     const targetProducts = ["Au99.99", "Au100g", "PGC30g", "Au(T+D)", "mAu(T+D)", "Ag(T+D)"];
     
     const filteredData = allProducts.filter(item => 
         targetProducts.includes(item.variety)
     );
     
-    console.log("过滤后的关注品种数: " + filteredData.length);
-    
-    // 检查哪些目标品种缺失
-    const missingProducts = targetProducts.filter(product => 
-        !filteredData.some(item => item.variety === product)
-    );
-    
-    if (missingProducts.length > 0) {
-        console.log("缺失的品种: " + missingProducts.join(", "));
-    }
-    
-    // 记录所有品种信息但不发送通知，按数据有效性排序
-    console.log("所有可用品种 (有数据在前):");
-    
-    // 分离有数据和无数据的品种
-    const validProducts = [];
-    const invalidProducts = [];
-    
-    allProducts.forEach(product => {
-        const hasValidData = product.latestpri && 
-                            product.latestpri !== "—" && 
-                            product.latestpri !== "--" && 
-                            product.latestpri !== "-" &&
-                            !isNaN(parseFloat(product.latestpri));
-        
-        if (hasValidData) {
-            validProducts.push(product);
-        } else {
-            invalidProducts.push(product);
-        }
-    });
-    
-    // 显示有数据的品种
-    validProducts.forEach((product, index) => {
-        const description = getProductDescription(product.variety);
-        console.log(`  ${index + 1}. ${product.variety} (${description}): ${product.latestpri} ${product.limit}`);
-    });
-    
-    // 显示无数据的品种
-    invalidProducts.forEach((product, index) => {
-        const description = getProductDescription(product.variety);
-        console.log(`  ${validProducts.length + index + 1}. ${product.variety} (${description}): — 无数据`);
-    });
-    
-    return filteredData;
+    return {
+        allProducts: allProducts,
+        filteredData: filteredData,
+        resultCount: resultCount
+    };
 }
 
-// 风险等级
+// 🎯 风险等级
 function getRiskLevel(variety) {
     const riskMap = {
-        "Au99.99": "low",
-        "Au100g": "low", 
-        "PGC30g": "low",
-        "mAu(T+D)": "medium",
-        "Au(T+D)": "high",
-        "Ag(T+D)": "very-high",
-        "AU99.99": "low" // 添加大写版本的品种
+        "Au99.99": "low",        // 低风险 - 标准现货黄金
+        "Au100g": "low",         // 低风险 - 小规格金条
+        "PGC30g": "low",         // 低风险 - 熊猫金币
+        "mAu(T+D)": "medium",    // 中风险 - 迷你黄金
+        "Au(T+D)": "high",       // 高风险 - 黄金延期
+        "Ag(T+D)": "very-high",  // 极高风险 - 白银延期
+        "AU99.99": "low"         // 低风险 - 添加大写版本的品种
     };
     return riskMap[variety] || "medium";
 }
 
-// 风险图标
+// 🎯 风险图标
 function getRiskIcon(riskLevel) {
     const iconMap = {
-        "low": "🟢",
-        "medium": "🟡", 
-        "high": "🔴",
-        "very-high": "🔴🔴"
+        "low": "🟢",         // 低风险 - 绿色
+        "medium": "🟡",      // 中风险 - 黄色
+        "high": "🔴",        // 高风险 - 红色
+        "very-high": "🔴"    // 极高风险 - 红色
     };
     return iconMap[riskLevel] || "🟡";
 }
 
-// 品种描述 - 扩展所有品种的中文注释
+// 📝 品种描述 - 扩展所有品种的中文注释
 function getProductDescription(variety) {
     const descriptions = {
-        "Au99.99": "标准现货黄金",
-        "Au100g": "小规格金条", 
-        "PGC30g": "熊猫金币",
-        "Au(T+D)": "黄金延期",
-        "mAu(T+D)": "迷你黄金",
-        "Ag(T+D)": "白银延期",
-        "AU99.99": "标准现货黄金(大写)", // 为大写版本添加注释
-        "Au99.95": "标准二号金",
-        "Au(T+N1)": "黄金延期一月",
-        "Au(T+N2)": "黄金延期二月",
-        "Au50g": "50克金条",
-        "Ag99.99": "标准现货白银",
-        "Pt99.95": "铂金99.95",
-        "AU995": "标准一号金",
-        "iAu99.99": "国际版黄金99.99",
-        "IAU100G": "国际版100克金",
-        "IAU99.5": "国际版黄金99.5"
+        "Au99.99": "标准现货黄金",    // 主要现货品种
+        "Au100g": "小规格金条",       // 小克重投资金条
+        "PGC30g": "熊猫金币",         // 纪念金币品种
+        "Au(T+D)": "黄金延期",        // 保证金交易品种
+        "mAu(T+D)": "迷你黄金",       // 小合约黄金
+        "Ag(T+D)": "白银延期",        // 白银延期交易
+        "AU99.99": "标准现货黄金",     // 大写版本
+        "Au99.95": "标准二号金",      // 其他黄金品种
+        "Au(T+N1)": "黄金延期一月",    // 月度合约
+        "Au(T+N2)": "黄金延期二月",    // 双月合约
+        "Au50g": "50克金条",         // 小规格品种
+        "Ag99.99": "标准现货白银",    // 现货白银
+        "Pt99.95": "铂金99.95",      // 铂金品种
+        "AU995": "标准一号金",        // 高纯度黄金
+        "iAu99.99": "国际版黄金",     // 国际板品种
+        "IAU100G": "国际版100克金",   // 国际板小条
+        "IAU99.5": "国际版黄金99.5"   // 国际板标准金
     };
     return descriptions[variety] || "贵金属投资";
 }
 
-// 格式化数字
+// 🔢 格式化数字
 function formatNumber(value) {
     if (!value || value === '--' || value === 'NaN' || value === '—' || value === '-') return '--';
     const num = parseFloat(value);
     return isNaN(num) ? '--' : num.toFixed(2);
 }
 
-// 格式化时间
+// ⏰ 格式化时间
 function formatTime(timeStr) {
     if (!timeStr) return '--';
     return timeStr.split(' ')[1] || timeStr;
