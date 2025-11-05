@@ -2,6 +2,24 @@
 const API_URL = "http://web.juhe.cn/finance/gold/shfuture";
 const APP_KEY = "f24e2fa4068b20c4d44fbff66b7745de";
 
+// 期货交易时间配置
+const FUTURES_TRADING_HOURS = {
+    day: {
+        sessions: [
+            { start: { hour: 9, minute: 0 }, end: { hour: 10, minute: 15 } },    // 第一节
+            { start: { hour: 10, minute: 30 }, end: { hour: 11, minute: 30 } },   // 第二节
+            { start: { hour: 13, minute: 30 }, end: { hour: 15, minute: 0 } }     // 第三节
+        ]
+    },
+    night: {
+        sessions: [
+            { start: { hour: 21, minute: 0 }, end: { hour: 23, minute: 0 } },     // 标准夜盘
+            { start: { hour: 21, minute: 0 }, end: { hour: 1, minute: 0 } },      // 金属夜盘（到次日1点）
+            { start: { hour: 21, minute: 0 }, end: { hour: 2, minute: 30 } }      // 金银原油夜盘（到次日2:30）
+        ]
+    }
+};
+
 // 存储上次数据用于比较
 let lastData = $persistentStore.read("futures_last_data");
 if (!lastData) {
@@ -12,6 +30,13 @@ if (!lastData) {
 
 function main() {
     console.log("🎯 开始获取期货数据...");
+    
+    const now = new Date();
+    console.log(`🕒 当前时间: ${now.toLocaleString('zh-CN')}`);
+    
+    // 检查是否在交易时间内
+    const isTrading = isFuturesTradingTime(now);
+    console.log(`📊 交易状态: ${isTrading ? '交易中' : '非交易时间'}`);
     
     const url = `${API_URL}?key=${APP_KEY}&v=1`;
     
@@ -59,7 +84,7 @@ function main() {
             }
             
             // 处理期货数据
-            processFuturesData(jsonData.result);
+            processFuturesData(jsonData.result, isTrading);
             
         } catch (e) {
             console.log("❌ 数据处理错误:", e);
@@ -74,16 +99,57 @@ function main() {
     });
 }
 
-function processFuturesData(resultArray) {
+// ⏰ 检查期货交易时间
+function isFuturesTradingTime(now) {
+    const dayOfWeek = now.getDay();
+    const hour = now.getHours();
+    const minute = now.getMinutes();
+    const currentMinutes = hour * 60 + minute;
+    
+    // 周末休市
+    if (dayOfWeek === 0 || dayOfWeek === 6) {
+        return false;
+    }
+    
+    // 检查日盘交易时间
+    for (const session of FUTURES_TRADING_HOURS.day.sessions) {
+        const sessionStart = session.start.hour * 60 + session.start.minute;
+        const sessionEnd = session.end.hour * 60 + session.end.minute;
+        
+        if (currentMinutes >= sessionStart && currentMinutes <= sessionEnd) {
+            return true;
+        }
+    }
+    
+    // 检查夜盘交易时间（跨天）
+    for (const session of FUTURES_TRADING_HOURS.night.sessions) {
+        const sessionStart = session.start.hour * 60 + session.start.minute;
+        let sessionEnd = session.end.hour * 60 + session.end.minute;
+        
+        // 处理跨天的夜盘（结束时间在次日）
+        if (session.end.hour < session.start.hour) {
+            sessionEnd += 24 * 60; // 加上一天的分钟数
+        }
+        
+        let adjustedCurrentMinutes = currentMinutes;
+        if (hour < session.start.hour) {
+            adjustedCurrentMinutes += 24 * 60; // 如果是凌晨，加上一天的分钟数
+        }
+        
+        if (adjustedCurrentMinutes >= sessionStart && adjustedCurrentMinutes <= sessionEnd) {
+            return true;
+        }
+    }
+    
+    return false;
+}
+
+function processFuturesData(resultArray, isTrading) {
     console.log(`📊 获取到 ${resultArray.length} 个结果元素`);
     
     if (resultArray.length === 0) {
         console.log("❌ 结果数组为空");
-        $notification.post(
-            "📊 期货数据", 
-            "当前休市", 
-            "未获取到有效期货数据\n可能处于非交易时段"
-        );
+        sendMarketCloseNotification();
         return;
     }
     
@@ -109,41 +175,49 @@ function processFuturesData(resultArray) {
     
     if (allFutures.length === 0) {
         console.log("⚠️ 没有有效数据");
-        $notification.post(
-            "📊 期货数据", 
-            "当前休市", 
-            "未获取到有效期货数据\n可能处于非交易时段"
-        );
+        sendMarketCloseNotification();
         return;
     }
     
-    // 检查数据时间有效性
-    const validFutures = allFutures.filter(future => {
-        return isDataTimeValid(future.data.time);
-    });
-    
-    console.log(`🕒 时间有效的品种: ${validFutures.length}/${allFutures.length}`);
+    // 检查数据时间有效性（只在交易时间内检查）
+    let validFutures = allFutures;
+    if (isTrading) {
+        validFutures = allFutures.filter(future => {
+            return isDataTimeValid(future.data.time);
+        });
+        console.log(`🕒 时间有效的品种: ${validFutures.length}/${allFutures.length}`);
+    } else {
+        console.log("⏰ 非交易时间，跳过数据时间验证");
+    }
     
     if (validFutures.length === 0) {
-        console.log("⚠️ 没有时间有效的数据");
-        $notification.post(
-            "📊 期货数据", 
-            "数据已过期", 
-            "当前数据非实时交易数据\n可能处于非交易时段"
-        );
+        console.log("⚠️ 没有有效的数据");
+        if (isTrading) {
+            sendMarketDataErrorNotification();
+        } else {
+            sendMarketCloseNotification();
+        }
         return;
     }
     
     // 显示所有品种的详细信息
-    displayAllFuturesDetails(validFutures);
+    displayAllFuturesDetails(validFutures, isTrading);
     
-    // 发送通知 - 主力合约
-    sendMainFuturesNotifications(validFutures);
+    // 发送通知
+    if (isTrading) {
+        sendMainFuturesNotifications(validFutures);
+    } else {
+        sendMarketCloseNotification(validFutures);
+    }
 }
 
-function displayAllFuturesDetails(futuresList) {
+function displayAllFuturesDetails(futuresList, isTrading) {
     console.log("=".repeat(80));
-    console.log("📋 所有期货品种详细信息");
+    if (isTrading) {
+        console.log("📋 所有期货品种详细信息 (交易中)");
+    } else {
+        console.log("📋 所有期货品种详细信息 (非交易时间)");
+    }
     console.log("=".repeat(80));
     
     futuresList.forEach((future, index) => {
@@ -181,6 +255,11 @@ function displayAllFuturesDetails(futuresList) {
         // 更新时间
         console.log(`   🕒 更新时间: ${data.time}`);
         
+        // 非交易时间提示
+        if (!isTrading) {
+            console.log(`   ⚠️ 注意: 非实时交易数据`);
+        }
+        
         // 品种间分隔线
         if (index < futuresList.length - 1) {
             console.log("─".repeat(80));
@@ -189,6 +268,56 @@ function displayAllFuturesDetails(futuresList) {
     
     console.log("=".repeat(80));
     console.log(`📊 总计 ${futuresList.length} 个期货品种`);
+}
+
+// ⏰ 发送市场收盘通知
+function sendMarketCloseNotification(futuresList = []) {
+    const now = new Date();
+    const timeStr = now.toLocaleString('zh-CN');
+    
+    let message = `⏰ ${timeStr}\n`;
+    message += "🔴 市场状态: 已收盘\n\n";
+    message += "💤 当前期货市场已收盘，暂无实时交易数据\n\n";
+    message += "⏰ 期货交易时间:\n";
+    message += "• 日盘: 09:00-10:15, 10:30-11:30, 13:30-15:00\n";
+    message += "• 夜盘: 21:00-23:00 (部分品种至次日1:00或2:30)\n\n";
+    message += "📅 交易日: 周一至周五\n";
+    message += "🔄 下次更新: 交易时间自动更新";
+    
+    if (futuresList.length > 0) {
+        message += `\n\n📊 当前显示 ${futuresList.length} 个品种的参考数据`;
+    }
+    
+    $notification.post(
+        "📊 期货市场",
+        "市场已收盘",
+        message
+    );
+    
+    console.log("✅ 市场收盘通知已发送");
+}
+
+// ⚠️ 发送市场数据异常通知
+function sendMarketDataErrorNotification() {
+    const now = new Date();
+    const timeStr = now.toLocaleString('zh-CN');
+    
+    let message = `⏰ ${timeStr}\n`;
+    message += "🟡 市场状态: 交易中但数据异常\n\n";
+    message += "⚠️ 当前在交易时间内，但未能获取到有效实时数据\n\n";
+    message += "可能原因:\n";
+    message += "• 数据源暂时不可用\n";
+    message += "• 网络连接问题\n";
+    message += "• API限制\n\n";
+    message += "🔄 系统将在下次更新时重试";
+    
+    $notification.post(
+        "📊 期货数据",
+        "数据获取异常",
+        message
+    );
+    
+    console.log("✅ 数据异常通知已发送");
 }
 
 function isDataTimeValid(dataTime) {
