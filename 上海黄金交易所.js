@@ -1,5 +1,5 @@
-// 上海黄金交易所数据脚本 - 简洁日志格式
-const API_KEY = "f24e2fa40688b20c4d44fbff66b7745de";
+// 上海黄金交易所数据脚本 - 修复数据获取问题
+const API_KEY = "f24e2fa4068b20c4d44fbff66b7745de";
 const API_URL = "http://web.juhe.cn/finance/gold/shgold";
 
 // 交易时间配置
@@ -32,19 +32,19 @@ function delay(ms) {
         
         const goldData = await fetchGoldData();
         
-        // 只有在交易时间内才检查数据有效性
-        const hasValidData = isTrading ? quickDataCheck(goldData) : false;
-        
         // 显示基本统计信息
         console.log(`获取到 ${goldData.resultCount || 0} 个结果元素`);
         if (goldData.allProducts) {
             console.log(`总共提取到 ${goldData.allProducts.length} 个有效黄金品种`);
             
             const validCount = goldData.allProducts.filter(item => hasValidPriceData(item)).length;
-            console.log(`时间有效的品种：${validCount}/${goldData.allProducts.length}`);
+            console.log(`价格有效的品种：${validCount}/${goldData.allProducts.length}`);
         }
         
         console.log("---");
+        
+        // 检查数据有效性（放宽条件）
+        const hasValidData = checkDataValidity(goldData, isTrading);
         
         if (hasValidData) {
             // 显示所有品种详细数据
@@ -53,12 +53,12 @@ function delay(ms) {
             await sendMultipleNotifications(now, goldData);
             console.log("所有通知发送完成");
         } else {
-            // 显示所有品种但标记为无数据
-            await displayAllProductsNoData(goldData);
+            // 显示所有品种数据（即使部分无效）
+            await displayAllProductsData(goldData, false);
             
             if (isTrading) {
                 // 交易时间内但无有效数据
-                await sendMarketDataErrorNotification(now);
+                await sendMarketDataErrorNotification(now, goldData);
                 console.log("市场数据异常通知已发送");
             } else {
                 // 非交易时间：发送市场收盘通知
@@ -79,6 +79,37 @@ function delay(ms) {
         $done();
     }
 })();
+
+// 🔍 改进的数据有效性检查
+function checkDataValidity(goldData, isTrading) {
+    if (!goldData || !goldData.success || !goldData.allProducts) {
+        console.log("❌ 数据基本结构无效");
+        return false;
+    }
+    
+    // 检查是否有任何品种有有效价格数据
+    const hasAnyValidPrice = goldData.allProducts.some(item => hasValidPriceData(item));
+    
+    if (hasAnyValidPrice) {
+        console.log("✅ 找到有效价格数据");
+        return true;
+    }
+    
+    // 如果没有有效价格数据，但在交易时间内，检查是否有其他有效字段
+    if (isTrading) {
+        const hasAnyValidData = goldData.allProducts.some(item => 
+            item && item.variety && (item.latestpri || item.openpri || item.yespri)
+        );
+        
+        if (hasAnyValidData) {
+            console.log("⚠️ 交易时间内有部分数据，但价格数据可能异常");
+            return true; // 在交易时间内，即使价格异常也显示数据
+        }
+    }
+    
+    console.log("❌ 无有效数据");
+    return false;
+}
 
 // ⏰ 检查是否在交易时间内
 function isTradingTime(now) {
@@ -113,14 +144,20 @@ function isTradingTime(now) {
     return false;
 }
 
-// 📊 显示所有品种详细数据（有数据时）
-async function displayAllProductsData(goldData) {
+// 📊 显示所有品种详细数据（改进版）
+async function displayAllProductsData(goldData, showValidOnly = true) {
     if (!goldData.success || !goldData.allProducts) {
         console.log("无有效数据");
         return;
     }
     
-    console.log("## 所有黄金品种详细信息");
+    const isTrading = isTradingTime(new Date());
+    
+    if (isTrading) {
+        console.log("## 所有黄金品种详细信息 (交易中)");
+    } else {
+        console.log("## 所有黄金品种详细信息 (非交易时间)");
+    }
     console.log("");
     
     const allProducts = goldData.allProducts;
@@ -134,6 +171,9 @@ async function displayAllProductsData(goldData) {
         return 0;
     });
     
+    let validCount = 0;
+    let totalCount = 0;
+    
     sortedProducts.forEach((product, index) => {
         const number = (index + 1).toString().padStart(2, '0');
         const riskIcon = getRiskIcon(getRiskLevel(product.variety));
@@ -141,7 +181,11 @@ async function displayAllProductsData(goldData) {
         
         console.log(`${number}. ${riskIcon} ${product.variety} - ${description}`);
         
-        if (hasValidPriceData(product)) {
+        const hasValidPrice = hasValidPriceData(product);
+        if (hasValidPrice) validCount++;
+        totalCount++;
+        
+        if (hasValidPrice || !showValidOnly) {
             const latestPrice = formatNumber(product.latestpri);
             const limitChange = formatLimitChange(product.limit);
             const trendIcon = getTrendIcon(limitChange);
@@ -161,66 +205,55 @@ async function displayAllProductsData(goldData) {
             console.log(`最高：${highPrice} | 最低：${lowPrice}`);
             console.log(`成交量：${volume}`);
             console.log(`更新时间：${updateTime}`);
+            
+            if (!hasValidPrice) {
+                console.log(`⚠️ 价格数据可能异常`);
+            }
         } else {
-            console.log(`无交易数据`);
+            console.log(`无有效交易数据`);
+            
+            // 即使没有有效价格，也显示一些基本信息
+            if (product.time) {
+                console.log(`更新时间：${formatTime(product.time)}`);
+            }
         }
         
         console.log(""); // 空行分隔
     });
+    
+    console.log(`📊 统计: ${validCount}/${totalCount} 个品种有有效价格数据`);
 }
 
-// 📊 显示所有品种无数据状态
-async function displayAllProductsNoData(goldData) {
-    const allProducts = goldData.allProducts || [];
-    
-    console.log("## 所有黄金品种状态");
-    console.log("");
-    
-    const isTrading = isTradingTime(new Date());
-    if (isTrading) {
-        console.log("⚠️ 交易时间内但无有效数据");
-        console.log("可能原因：数据源异常或网络问题");
-    } else {
-        console.log("所有品种当前均无交易数据");
-        console.log("市场已收盘，等待下一个交易时段");
-    }
-    console.log("");
-    
-    allProducts.forEach((product, index) => {
-        const number = (index + 1).toString().padStart(2, '0');
-        const riskIcon = getRiskIcon(getRiskLevel(product.variety));
-        const description = getProductDescription(product.variety);
-        
-        console.log(`${number}. ${riskIcon} ${product.variety} - ${description}`);
-    });
-    
-    console.log("");
-    console.log(`品种总数：${allProducts.length}`);
-}
-
-// 🔍 快速数据检查
-function quickDataCheck(apiData) {
-    if (!apiData || !apiData.success || !apiData.data || apiData.data.length === 0) {
-        return false;
-    }
-    
-    // 快速检查：只要有一个品种有有效价格数据
-    for (let i = 0; i < apiData.data.length; i++) {
-        const item = apiData.data[i];
-        if (hasValidPriceData(item)) {
-            return true;
-        }
-    }
-    
-    return false;
-}
-
-// 🔍 检查单个品种是否有有效价格数据
+// 🔍 检查单个品种是否有有效价格数据（放宽条件）
 function hasValidPriceData(item) {
     if (!item || !item.latestpri) return false;
     
     const price = parseFloat(item.latestpri);
-    return !isNaN(price) && price > 0;
+    // 放宽条件：只要价格是数字且大于0.1（避免0或极小值）
+    return !isNaN(price) && price > 0.1;
+}
+
+// ⚠️ 发送市场数据异常通知（改进版）
+async function sendMarketDataErrorNotification(currentTime, goldData) {
+    const timeStr = currentTime.toLocaleString('zh-CN');
+    const validCount = goldData.allProducts ? goldData.allProducts.filter(item => hasValidPriceData(item)).length : 0;
+    const totalCount = goldData.allProducts ? goldData.allProducts.length : 0;
+    
+    let message = `⏰ ${timeStr}\n`;
+    message += "🟡 市场状态: 交易中但数据异常\n\n";
+    message += "⚠️ 当前在交易时间内，但数据获取异常\n\n";
+    message += `📊 数据状态: ${validCount}/${totalCount} 个品种有效\n\n`;
+    message += "可能原因:\n";
+    message += "• 数据源暂时不可用\n";
+    message += "• 网络连接问题\n";
+    message += "• API限制或更新延迟\n\n";
+    message += "🔄 系统将在下次更新时重试";
+    
+    $notification.post(
+        "🛎 上海黄金交易所",
+        "数据获取异常",
+        message
+    );
 }
 
 // ⏰ 发送市场收盘通知
@@ -242,29 +275,15 @@ async function sendMarketCloseNotification(currentTime) {
     );
 }
 
-// ⚠️ 发送市场数据异常通知
-async function sendMarketDataErrorNotification(currentTime) {
-    const timeStr = currentTime.toLocaleString('zh-CN');
-    
-    let message = `⏰ ${timeStr}\n`;
-    message += "🟡 市场状态: 交易中但数据异常\n\n";
-    message += "⚠️ 当前在交易时间内，但未能获取到有效数据\n\n";
-    message += "可能原因:\n";
-    message += "• 数据源暂时不可用\n";
-    message += "• 网络连接问题\n";
-    message += "• API限制\n\n";
-    message += "🔄 系统将在下次更新时重试";
-    
-    $notification.post(
-        "🛎 上海黄金交易所",
-        "数据获取异常",
-        message
-    );
-}
-
-// 🔔 发送多个单独通知（只发送目标品种）
+// 🔔 发送多个单独通知（改进版）
 async function sendMultipleNotifications(currentTime, goldData) {
     const timeStr = currentTime.toLocaleString('zh-CN');
+    const validProducts = (goldData.data || []).filter(item => hasValidPriceData(item));
+    
+    if (validProducts.length === 0) {
+        console.log("⚠️ 没有有效的品种数据可以发送通知");
+        return;
+    }
     
     // 1. 市场状态通知
     let marketMessage = `⏰ ${timeStr}\n`;
@@ -277,6 +296,7 @@ async function sendMultipleNotifications(currentTime, goldData) {
     // 添加风险提示
     marketMessage += "📋 风险等级说明:\n";
     marketMessage += "🟢 低风险(现货)\n🟡 中风险(迷你)\n🔴 高风险(杠杆)\n🔴🔴 极高风险(白银)\n\n";
+    marketMessage += `📊 当前 ${validProducts.length} 个品种有实时数据\n\n`;
     marketMessage += "🔄 自动更新: 每小时";
     
     $notification.post(
@@ -289,24 +309,19 @@ async function sendMultipleNotifications(currentTime, goldData) {
     await delay(1000);
     
     // 2. 为目标品种发送单独通知
-    const targetProducts = goldData.data || [];
-    for (let i = 0; i < targetProducts.length; i++) {
-        const item = targetProducts[i];
-        if (hasValidPriceData(item)) {
-            await sendProductNotification(item, i + 1, targetProducts.length);
-            
-            // 如果不是最后一个通知，等待1秒
-            if (i < targetProducts.length - 1) {
-                await delay(1000);
-            }
+    for (let i = 0; i < validProducts.length; i++) {
+        const item = validProducts[i];
+        await sendProductNotification(item, i + 1, validProducts.length);
+        
+        // 如果不是最后一个通知，等待1秒
+        if (i < validProducts.length - 1) {
+            await delay(1000);
         }
     }
     
     // 3. 保存当前数据作为上一数据
-    targetProducts.forEach(item => {
-        if (hasValidPriceData(item)) {
-            saveCurrentAsPrevious(item);
-        }
+    validProducts.forEach(item => {
+        saveCurrentAsPrevious(item);
     });
 }
 
@@ -510,7 +525,7 @@ function fetchGoldData() {
                         reason: result.reason
                     });
                 } else {
-                    console.log(`API错误: ${result.reason}`);
+                    console.log(`API错误: ${result.reason} (代码: ${result.error_code})`);
                     resolve({
                         success: false, 
                         error: result.reason,
