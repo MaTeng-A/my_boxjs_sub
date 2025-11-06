@@ -1,8 +1,8 @@
-// 上海黄金交易所数据脚本 - 修复数据获取问题
+// 上海黄金交易所数据脚本 - 修复交易时间判断
 const API_KEY = "f24e2fa4068b20c4d44fbff66b7745de";
 const API_URL = "http://web.juhe.cn/finance/gold/shgold";
 
-// 交易时间配置
+// 交易时间配置 - 精确到分钟
 const TRADING_HOURS = {
     day: {
         start: { hour: 9, minute: 0 },   // 日盘开始 09:00
@@ -43,28 +43,29 @@ function delay(ms) {
         
         console.log("---");
         
-        // 检查数据有效性（放宽条件）
+        // 检查数据有效性
         const hasValidData = checkDataValidity(goldData, isTrading);
         
-        if (hasValidData) {
-            // 显示所有品种详细数据
+        if (hasValidData && isTrading) {
+            // 交易时间内且有有效数据
             await displayAllProductsData(goldData);
-            // 发送多个单独通知
             await sendMultipleNotifications(now, goldData);
             console.log("所有通知发送完成");
-        } else {
-            // 显示所有品种数据（即使部分无效）
+        } else if (hasValidData && !isTrading) {
+            // 非交易时间但有数据（可能是收盘数据）
             await displayAllProductsData(goldData, false);
-            
-            if (isTrading) {
-                // 交易时间内但无有效数据
-                await sendMarketDataErrorNotification(now, goldData);
-                console.log("市场数据异常通知已发送");
-            } else {
-                // 非交易时间：发送市场收盘通知
-                await sendMarketCloseNotification(now);
-                console.log("市场收盘通知已发送");
-            }
+            await sendMarketCloseNotification(now, goldData);
+            console.log("市场收盘通知已发送（有参考数据）");
+        } else if (!hasValidData && isTrading) {
+            // 交易时间内但无有效数据
+            await displayAllProductsNoData(goldData);
+            await sendMarketDataErrorNotification(now, goldData);
+            console.log("市场数据异常通知已发送");
+        } else {
+            // 非交易时间且无数据
+            await displayAllProductsNoData(goldData);
+            await sendMarketCloseNotification(now);
+            console.log("市场收盘通知已发送");
         }
         
         $done();
@@ -79,6 +80,48 @@ function delay(ms) {
         $done();
     }
 })();
+
+// ⏰ 修复交易时间判断函数
+function isTradingTime(now) {
+    const hour = now.getHours();
+    const minute = now.getMinutes();
+    const currentTime = hour * 100 + minute; // 转换为HHMM格式
+    
+    console.log(`当前时间: ${hour}:${minute.toString().padStart(2, '0')} (${currentTime})`);
+    
+    // 日盘时间检查 (09:00 - 15:30)
+    const dayStart = 900;  // 09:00
+    const dayEnd = 1530;   // 15:30
+    
+    // 夜盘时间检查 (20:00 - 次日02:30)
+    const nightStart = 2000; // 20:00
+    const nightEnd = 230;    // 02:30
+    
+    // 检查日盘
+    if (currentTime >= dayStart && currentTime <= dayEnd) {
+        console.log("✅ 在日盘交易时间内");
+        return true;
+    }
+    
+    // 检查夜盘（跨天情况）
+    if (hour >= 20) {
+        // 20:00 之后
+        if (currentTime >= nightStart) {
+            console.log("✅ 在夜盘交易时间内（20:00之后）");
+            return true;
+        }
+    } else if (hour < 2 || (hour === 2 && minute <= 30)) {
+        // 02:30 之前
+        if (currentTime <= nightEnd) {
+            console.log("✅ 在夜盘交易时间内（02:30之前）");
+            return true;
+        }
+    }
+    
+    console.log("❌ 不在交易时间内");
+    console.log(`日盘: ${dayStart}-${dayEnd}, 夜盘: ${nightStart}-次日${nightEnd}`);
+    return false;
+}
 
 // 🔍 改进的数据有效性检查
 function checkDataValidity(goldData, isTrading) {
@@ -103,7 +146,7 @@ function checkDataValidity(goldData, isTrading) {
         
         if (hasAnyValidData) {
             console.log("⚠️ 交易时间内有部分数据，但价格数据可能异常");
-            return true; // 在交易时间内，即使价格异常也显示数据
+            return true;
         }
     }
     
@@ -111,52 +154,17 @@ function checkDataValidity(goldData, isTrading) {
     return false;
 }
 
-// ⏰ 检查是否在交易时间内
-function isTradingTime(now) {
-    const hour = now.getHours();
-    const minute = now.getMinutes();
-    const currentMinutes = hour * 60 + minute;
-    
-    // 日盘时间检查 (09:00 - 15:30)
-    const dayStart = TRADING_HOURS.day.start.hour * 60 + TRADING_HOURS.day.start.minute; // 09:00 = 540分钟
-    const dayEnd = TRADING_HOURS.day.end.hour * 60 + TRADING_HOURS.day.end.minute;       // 15:30 = 930分钟
-    
-    // 夜盘时间检查 (20:00 - 次日02:30)
-    const nightStart = TRADING_HOURS.night.start.hour * 60 + TRADING_HOURS.night.start.minute; // 20:00 = 1200分钟
-    const nightEnd = TRADING_HOURS.night.end.hour * 60 + TRADING_HOURS.night.end.minute;       // 02:30 = 150分钟
-    
-    // 检查日盘
-    if (currentMinutes >= dayStart && currentMinutes <= dayEnd) {
-        return true;
-    }
-    
-    // 检查夜盘（跨天情况）
-    if (hour >= TRADING_HOURS.night.start.hour || hour < TRADING_HOURS.night.end.hour) {
-        if (hour >= TRADING_HOURS.night.start.hour) {
-            // 20:00 之后
-            return currentMinutes >= nightStart;
-        } else {
-            // 02:30 之前
-            return currentMinutes <= nightEnd;
-        }
-    }
-    
-    return false;
-}
-
-// 📊 显示所有品种详细数据（改进版）
-async function displayAllProductsData(goldData, showValidOnly = true) {
+// 📊 显示所有品种详细数据
+async function displayAllProductsData(goldData, isRealTime = true) {
     if (!goldData.success || !goldData.allProducts) {
         console.log("无有效数据");
         return;
     }
     
-    const isTrading = isTradingTime(new Date());
-    
-    if (isTrading) {
-        console.log("## 所有黄金品种详细信息 (交易中)");
+    if (isRealTime) {
+        console.log("## 所有黄金品种详细信息 (实时交易数据)");
     } else {
-        console.log("## 所有黄金品种详细信息 (非交易时间)");
+        console.log("## 所有黄金品种详细信息 (参考数据)");
     }
     console.log("");
     
@@ -185,7 +193,7 @@ async function displayAllProductsData(goldData, showValidOnly = true) {
         if (hasValidPrice) validCount++;
         totalCount++;
         
-        if (hasValidPrice || !showValidOnly) {
+        if (hasValidPrice) {
             const latestPrice = formatNumber(product.latestpri);
             const limitChange = formatLimitChange(product.limit);
             const trendIcon = getTrendIcon(limitChange);
@@ -196,7 +204,6 @@ async function displayAllProductsData(goldData, showValidOnly = true) {
             const updateTime = formatTime(product.time);
             const yesPrice = formatNumber(product.yespri);
             
-            // 计算涨跌点数
             const changePoints = calculateChangePoints(product.latestpri, product.yespri);
             
             console.log(`最新价：${latestPrice}`);
@@ -206,25 +213,52 @@ async function displayAllProductsData(goldData, showValidOnly = true) {
             console.log(`成交量：${volume}`);
             console.log(`更新时间：${updateTime}`);
             
-            if (!hasValidPrice) {
-                console.log(`⚠️ 价格数据可能异常`);
+            if (!isRealTime) {
+                console.log(`⚠️ 非实时交易数据（市场已收盘）`);
             }
         } else {
             console.log(`无有效交易数据`);
-            
-            // 即使没有有效价格，也显示一些基本信息
             if (product.time) {
                 console.log(`更新时间：${formatTime(product.time)}`);
             }
         }
         
-        console.log(""); // 空行分隔
+        console.log("");
     });
     
     console.log(`📊 统计: ${validCount}/${totalCount} 个品种有有效价格数据`);
 }
 
-// 🔍 检查单个品种是否有有效价格数据（放宽条件）
+// 📊 显示所有品种无数据状态
+async function displayAllProductsNoData(goldData) {
+    const allProducts = goldData.allProducts || [];
+    
+    console.log("## 所有黄金品种状态");
+    console.log("");
+    
+    const isTrading = isTradingTime(new Date());
+    if (isTrading) {
+        console.log("⚠️ 交易时间内但无有效数据");
+        console.log("可能原因：数据源异常或网络问题");
+    } else {
+        console.log("所有品种当前均无交易数据");
+        console.log("市场已收盘，等待下一个交易时段");
+    }
+    console.log("");
+    
+    allProducts.forEach((product, index) => {
+        const number = (index + 1).toString().padStart(2, '0');
+        const riskIcon = getRiskIcon(getRiskLevel(product.variety));
+        const description = getProductDescription(product.variety);
+        
+        console.log(`${number}. ${riskIcon} ${product.variety} - ${description}`);
+    });
+    
+    console.log("");
+    console.log(`品种总数：${allProducts.length}`);
+}
+
+// 🔍 检查单个品种是否有有效价格数据
 function hasValidPriceData(item) {
     if (!item || !item.latestpri) return false;
     
@@ -233,7 +267,41 @@ function hasValidPriceData(item) {
     return !isNaN(price) && price > 0.1;
 }
 
-// ⚠️ 发送市场数据异常通知（改进版）
+// ⏰ 发送市场收盘通知（改进版）
+async function sendMarketCloseNotification(currentTime, goldData = null) {
+    const timeStr = currentTime.toLocaleString('zh-CN');
+    const isTrading = isTradingTime(currentTime);
+    
+    let message = `⏰ ${timeStr}\n`;
+    
+    if (isTrading) {
+        message += "🟡 市场状态: 交易中但数据异常\n\n";
+        message += "⚠️ 当前在交易时间内，但数据获取异常\n\n";
+    } else {
+        message += "🔴 市场状态: 已收盘\n\n";
+        message += "💤 当前市场已收盘，暂无实时交易数据\n\n";
+    }
+    
+    message += "⏰ 交易时间:\n";
+    message += "• 日盘: 09:00-15:30\n";
+    message += "• 夜盘: 20:00-02:30\n\n";
+    
+    if (goldData && goldData.allProducts) {
+        const validCount = goldData.allProducts.filter(item => hasValidPriceData(item)).length;
+        const totalCount = goldData.allProducts.length;
+        message += `📊 数据状态: ${validCount}/${totalCount} 个品种有参考数据\n\n`;
+    }
+    
+    message += "🔄 下次更新: 交易时间自动更新";
+    
+    $notification.post(
+        "🛎 上海黄金交易所",
+        isTrading ? "数据获取异常" : "市场已收盘",
+        message
+    );
+}
+
+// ⚠️ 发送市场数据异常通知
 async function sendMarketDataErrorNotification(currentTime, goldData) {
     const timeStr = currentTime.toLocaleString('zh-CN');
     const validCount = goldData.allProducts ? goldData.allProducts.filter(item => hasValidPriceData(item)).length : 0;
@@ -256,32 +324,14 @@ async function sendMarketDataErrorNotification(currentTime, goldData) {
     );
 }
 
-// ⏰ 发送市场收盘通知
-async function sendMarketCloseNotification(currentTime) {
-    const timeStr = currentTime.toLocaleString('zh-CN');
-    
-    let message = `⏰ ${timeStr}\n`;
-    message += "🔴 市场状态: 已收盘\n\n";
-    message += "💤 当前市场已收盘，暂无交易数据\n\n";
-    message += "⏰ 交易时间:\n";
-    message += "• 日盘: 09:00-15:30\n";
-    message += "• 夜盘: 20:00-02:30\n\n";
-    message += "🔄 下次更新: 交易时间自动更新";
-    
-    $notification.post(
-        "🛎 上海黄金交易所",
-        "市场已收盘",
-        message
-    );
-}
-
-// 🔔 发送多个单独通知（改进版）
+// 🔔 发送多个单独通知（只在交易时间内发送）
 async function sendMultipleNotifications(currentTime, goldData) {
     const timeStr = currentTime.toLocaleString('zh-CN');
     const validProducts = (goldData.data || []).filter(item => hasValidPriceData(item));
     
     if (validProducts.length === 0) {
         console.log("⚠️ 没有有效的品种数据可以发送通知");
+        await sendMarketDataErrorNotification(currentTime, goldData);
         return;
     }
     
@@ -324,6 +374,8 @@ async function sendMultipleNotifications(currentTime, goldData) {
         saveCurrentAsPrevious(item);
     });
 }
+
+// ... 其余函数保持不变（calculateChangePoints, getTrendIcon, getPreviousData, saveCurrentAsPrevious, calculatePriceChange, sendProductNotification, formatLimitChange, formatVolume, fetchGoldData, processApiData, getRiskLevel, getRiskIcon, getProductDescription, formatNumber, formatTime）
 
 // 📈 计算涨跌点数
 function calculateChangePoints(latestPrice, previousPrice) {
