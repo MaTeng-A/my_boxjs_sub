@@ -39,6 +39,7 @@ function getOilPrice() {
             
             // 提取油价信息
             const oilData = result.result;
+            const currentYear = new Date().getFullYear().toString();
             
             // 获取上次保存的油价数据
             const lastOilData = $persistentStore.read("last_oil_price");
@@ -67,8 +68,10 @@ function getOilPrice() {
             
             // 如果有价格变动，记录变动信息
             if (hasPriceChange) {
+                const now = new Date();
                 const changeRecord = {
-                    date: oilData.time || new Date().toLocaleDateString(),
+                    timestamp: now.getTime(),
+                    date: formatDateTime(now),
                     changes: {}
                 };
                 
@@ -97,14 +100,14 @@ function getOilPrice() {
                     }
                 });
                 
-                // 获取历史调价记录
-                const historyData = $persistentStore.read("oil_price_change_history");
+                // 获取年度历史调价记录
+                const historyKey = `oil_price_history_${currentYear}`;
+                const historyData = $persistentStore.read(historyKey);
                 let historyRecords = [];
                 
                 if (historyData) {
                     try {
                         historyRecords = JSON.parse(historyData);
-                        // 确保historyRecords是数组
                         if (!Array.isArray(historyRecords)) {
                             historyRecords = [];
                         }
@@ -117,14 +120,20 @@ function getOilPrice() {
                 // 将新记录添加到历史记录中
                 historyRecords.unshift(changeRecord);
                 
-                // 只保留最近两次调价记录
-                if (historyRecords.length > 2) {
-                    historyRecords = historyRecords.slice(0, 2);
-                }
+                // 保存年度历史调价记录
+                $persistentStore.write(JSON.stringify(historyRecords), historyKey);
+                console.log(`[${currentYear}]油价变动已记录: ${JSON.stringify(changeRecord)}`);
                 
-                // 保存历史调价记录
-                $persistentStore.write(JSON.stringify(historyRecords), "oil_price_change_history");
-                console.log("油价变动已记录: " + JSON.stringify(changeRecord));
+                // 在日志中输出完整历史记录
+                console.log(`=== ${currentYear}年度调价历史 ===`);
+                historyRecords.forEach((record, index) => {
+                    console.log(`${index + 1}. ${record.date}`);
+                    Object.values(record.changes).forEach(change => {
+                        const diffIcon = change.diff > 0 ? "📈" : "📉";
+                        const diffSign = change.diff > 0 ? "+" : "";
+                        console.log(`   ${diffIcon} ${change.name}: ${change.lastPrice}→${change.currentPrice}(${diffSign}${change.diff.toFixed(2)})`);
+                    });
+                });
             }
             
             // 保存当前油价数据
@@ -134,71 +143,65 @@ function getOilPrice() {
                 p95: oilData.p95,
                 p98: oilData.p98 || null,
                 p0: oilData.p0,
-                time: oilData.time || new Date().toLocaleDateString()
+                time: oilData.time || new Date().toLocaleDateString(),
+                timestamp: new Date().getTime()
             };
             
             $persistentStore.write(JSON.stringify(saveData), "last_oil_price");
             
-            // 构建消息 - 紧凑格式
+            // 构建通知消息
             let message = "";
             
-            // 添加日期时间（紧接在标题下方，使用⏰图标）
+            // 添加日期时间（精确到分钟）
             if (oilData.time) {
-                message += `⏰${oilData.time}`;
+                const timePart = oilData.time.split(' ')[1] || '';
+                const hourMinute = timePart.substring(0, 5);
+                const datePart = oilData.time.split(' ')[0];
+                message += `⏰ ${datePart} ${hourMinute}`;
             }
             
-            // 获取历史调价记录
-            const historyData = $persistentStore.read("oil_price_change_history");
-            let historyRecords = [];
+            // 获取最近一次调价记录
+            const historyKey = `oil_price_history_${currentYear}`;
+            const historyData = $persistentStore.read(historyKey);
+            let latestChange = null;
             
             if (historyData) {
                 try {
-                    historyRecords = JSON.parse(historyData);
+                    const historyRecords = JSON.parse(historyData);
+                    if (Array.isArray(historyRecords) && historyRecords.length > 0) {
+                        latestChange = historyRecords[0];
+                    }
                 } catch (e) {
                     console.log("解析历史调价记录失败: " + e);
                 }
             }
             
-            // 如果有调价记录，显示调价历史
-            if (historyRecords.length > 0) {
-                message += "\n\n📊调价历史:";
+            // 显示最近一次调价历史
+            if (latestChange && latestChange.changes) {
+                message += "\n\n📊 最近调价";
+                message += `\n🆕 ${latestChange.date.split(' ')[0]}`;
                 
-                historyRecords.forEach((record, index) => {
-                    const changes = record.changes;
-                    const changedTypes = Object.keys(changes);
-                    
-                    if (changedTypes.length > 0) {
-                        // 使用不同图标表示最近两次调价
-                        const recordIcon = index === 0 ? "🆕" : "🔄";
-                        message += `\n${recordIcon}${record.date}:`;
-                        
-                        // 显示所有油品的变动情况
-                        const oilTypes = [
-                            {key: 'p92', name: '92号汽油'},
-                            {key: 'p95', name: '95号汽油'},
-                            {key: 'p98', name: '98号汽油'},
-                            {key: 'p0', name: '0号柴油'}
-                        ];
-                        
-                        oilTypes.forEach(type => {
-                            if (changes[type.key]) {
-                                const change = changes[type.key];
-                                const diffIcon = change.diff > 0 ? "📈" : "📉";
-                                const diffSign = change.diff > 0 ? "+" : "";
-                                message += `\n  ${diffIcon}${change.name}: ${change.lastPrice}→${change.currentPrice}(${diffSign}${change.diff.toFixed(2)})`;
-                            }
-                        });
-                        
-                        // 如果不是最后一次记录，添加空行分隔
-                        if (index < historyRecords.length - 1) {
-                            message += "\n";
-                        }
+                const changes = latestChange.changes;
+                const oilTypes = [
+                    {key: 'p92', name: '92号汽油'},
+                    {key: 'p95', name: '95号汽油'}, 
+                    {key: 'p98', name: '98号汽油'},
+                    {key: 'p0', name: '0号柴油'}
+                ];
+                
+                oilTypes.forEach(type => {
+                    if (changes[type.key]) {
+                        const change = changes[type.key];
+                        const diffIcon = change.diff > 0 ? "📈" : "📉";
+                        const diffSign = change.diff > 0 ? "+" : "";
+                        // 对齐显示格式
+                        message += `\n${diffIcon} ${type.name}: ${change.lastPrice}→${change.currentPrice}(${diffSign}${change.diff.toFixed(2)})`;
                     }
                 });
             }
             
-            // 添加各型号当前油价
-            message += "\n\n当前油价:";
+            // 添加当前油价（紧凑格式）
+            message += "\n\n⛽ 当前油价";
             const oilTypes = [
                 {key: 'p92', name: '92号汽油'},
                 {key: 'p95', name: '95号汽油'},
@@ -209,7 +212,9 @@ function getOilPrice() {
             oilTypes.forEach(type => {
                 if (oilData[type.key]) {
                     const currentPrice = parseFloat(oilData[type.key]);
-                    message += `\n⛽${type.name}：¥${currentPrice}`;
+                    // 对齐显示格式，确保冒号对齐
+                    const paddedName = type.name.padEnd(6, ' '); // 中文字符占2个英文字符宽度
+                    message += `\n🛢️ ${paddedName}：¥${currentPrice.toFixed(2)}`;
                 }
             });
             
@@ -227,6 +232,16 @@ function getOilPrice() {
             $done();
         }
     });
+}
+
+// 格式化日期时间（精确到分钟）
+function formatDateTime(date) {
+    const year = date.getFullYear();
+    const month = String(date.getMonth() + 1).padStart(2, '0');
+    const day = String(date.getDate()).padStart(2, '0');
+    const hours = String(date.getHours()).padStart(2, '0');
+    const minutes = String(date.getMinutes()).padStart(2, '0');
+    return `${year}-${month}-${day} ${hours}:${minutes}`;
 }
 
 // 执行主函数
