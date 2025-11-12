@@ -1,63 +1,82 @@
-// 海信Cookie获取调试脚本
-const $ = new Env('海信Cookie调试');
+// 海信爱家Cookie获取脚本（优化版）
+const $ = new Env('海信Cookie获取');
 
 // 检查是否在重写响应模式
 if (typeof $response !== 'undefined') {
-  $.log('=== 进入重写响应模式 ===');
+  $.log('=== 开始处理海信请求 ===');
   $.log('请求URL:', $request.url);
   $.log('请求方法:', $request.method);
   
-  // 检查请求头
-  const headers = $request.headers;
-  $.log('请求头Keys:', Object.keys(headers));
+  // 检查是否是关键接口
+  const criticalUrls = [
+    '/ecrp/member/initMember',
+    '/ecrp/oauth/init',
+    '/ecrp/forward/init'
+  ];
   
-  // 获取Cookie
-  const cookie = headers['Cookie'] || headers['cookie'];
-  $.log('获取到的Cookie:', cookie ? '有' : '无');
-  
-  if (cookie) {
-    $.log('Cookie长度:', cookie.length);
-    $.log('Cookie内容(前100字符):', cookie.substring(0, 100));
-    
-    // 尝试从响应体获取TOKEN_ACTIVITY
-    let finalCookie = cookie;
-    if ($response.body) {
-      const tokenMatch = $response.body.match(/TOKEN_ACTIVITY=([^;]+)/);
-      $.log('TOKEN_ACTIVITY匹配:', tokenMatch ? '成功' : '失败');
-      
-      if (tokenMatch) {
-        finalCookie += '; ' + tokenMatch[0];
-        $.log('完整Cookie:', finalCookie);
-      }
+  let isCritical = false;
+  for (const url of criticalUrls) {
+    if ($request.url.includes(url)) {
+      isCritical = true;
+      $.log('发现关键接口:', url);
+      break;
     }
+  }
+  
+  if (isCritical) {
+    // 获取请求头中的Cookie
+    const headers = $request.headers;
+    const cookie = headers['Cookie'] || headers['cookie'];
     
-    // 保存Cookie
-    const saveResult = $persistentStore.write(finalCookie, 'hisense_ck');
-    $.log('保存结果:', saveResult ? '成功' : '失败');
-    
-    if (saveResult) {
-      $.msg('海信Cookie', '✅ 获取成功', '请返回查看存储状态');
+    if (cookie) {
+      $.log('获取到Cookie，长度:', cookie.length);
+      
+      // 尝试从响应体获取TOKEN_ACTIVITY
+      let finalCookie = cookie;
+      if ($response.body) {
+        const tokenMatch = $response.body.match(/TOKEN_ACTIVITY=([^;]+)/);
+        if (tokenMatch) {
+          finalCookie += '; ' + tokenMatch[0];
+          $.log('合并TOKEN_ACTIVITY成功');
+        }
+        
+        // 尝试其他可能的token格式
+        const otherTokenMatch = $response.body.match(/"token":"([^"]+)"/);
+        if (otherTokenMatch) {
+          finalCookie += '; token=' + otherTokenMatch[1];
+          $.log('合并token成功');
+        }
+      }
+      
+      // 保存Cookie
+      const saveResult = $persistentStore.write(finalCookie, 'hisense_ck');
+      if (saveResult) {
+        $.log('Cookie保存成功');
+        $.msg('海信爱家', '✅ Cookie获取成功', '可以执行签到了');
+      } else {
+        $.log('Cookie保存失败');
+        $.msg('海信爱家', '❌ 保存失败', '请检查权限');
+      }
     } else {
-      $.msg('海信Cookie', '❌ 保存失败', '请检查权限');
+      $.log('未找到Cookie');
+      $.msg('海信爱家', '⚠️ 未找到Cookie', '请检查MITM配置');
     }
   } else {
-    $.msg('海信Cookie', '❌ 未找到Cookie', '请检查MITM配置');
+    $.log('非关键接口，跳过处理');
   }
   
   $done();
 } else {
   // 普通执行模式 - 检查存储状态
-  $.log('=== 普通执行模式 ===');
   $.log('运行环境:', $.getEnv());
   
   const savedCookie = $persistentStore.read('hisense_ck');
-  $.log('存储的Cookie:', savedCookie ? `有 (${savedCookie.length}字符)` : '无');
-  
   if (savedCookie) {
-    $.log('Cookie内容(前50字符):', savedCookie.substring(0, 50));
-    $.msg('海信调试', 'Cookie状态', 'Cookie已存储，可以执行签到');
+    $.log('已存储Cookie，长度:', savedCookie.length);
+    $.msg('海信爱家', 'Cookie状态', 'Cookie已就绪，可以签到');
   } else {
-    $.msg('海信调试', 'Cookie状态', '未找到Cookie，请先获取');
+    $.log('未找到存储的Cookie');
+    $.msg('海信爱家', 'Cookie状态', '请先获取Cookie');
   }
   
   $done();
