@@ -1,46 +1,57 @@
-// 海信接口捕获脚本
-const $ = new Env('海信接口捕获');
+// 海信签到接口重点捕获
+const $ = new Env('海信签到捕获');
 
 if (typeof $response !== 'undefined') {
   const url = $request.url;
   const method = $request.method;
+  const path = url.split('/').pop();
   
-  $.log(`=== 捕获到海信请求 ===`);
-  $.log(`URL: ${url}`);
-  $.log(`方法: ${method}`);
+  // 重点关注的关键词
+  const signKeywords = ['sign', 'check', 'attend', 'task', 'point', 'score', 'daily', 'complete', 'join', 'participate'];
+  const isImportant = signKeywords.some(keyword => path.toLowerCase().includes(keyword));
   
-  // 检查请求头
-  const headers = $request.headers;
-  if (headers['Cookie'] || headers['cookie']) {
-    const cookie = headers['Cookie'] || headers['cookie'];
-    $.log(`发现Cookie: ${cookie.substring(0, 50)}...`);
+  if (isImportant) {
+    $.log(`🚨 重要接口捕获: ${path}`);
+    $.log(`完整URL: ${url}`);
+    $.log(`请求方法: ${method}`);
     
-    // 保存Cookie
-    $persistentStore.write(cookie, 'hisense_cookie');
-    $.log('Cookie已保存');
-  }
-  
-  if (headers['Authorization']) {
-    $.log(`发现Authorization: ${headers['Authorization'].substring(0, 30)}...`);
-    $persistentStore.write(headers['Authorization'], 'hisense_auth');
-  }
-  
-  // 检查响应体
-  if ($response.body) {
-    const bodyStr = JSON.stringify($response.body).substring(0, 200);
-    $.log(`响应体: ${bodyStr}...`);
+    // 保存重要接口详情
+    const importantApis = $persistentStore.read('hisense_important_apis') || '[]';
+    const apis = JSON.parse(importantApis);
     
-    // 尝试从响应体提取token
-    if (typeof $response.body === 'string') {
-      const tokenMatch = $response.body.match(/"token":"([^"]+)"/);
-      if (tokenMatch) {
-        $.log(`发现token: ${tokenMatch[1]}`);
-        $persistentStore.write(tokenMatch[1], 'hisense_token');
-      }
+    const apiDetail = {
+      path: path,
+      url: url,
+      method: method,
+      timestamp: new Date().toISOString()
+    };
+    
+    if (!apis.some(api => api.path === path)) {
+      apis.push(apiDetail);
+      $persistentStore.write(JSON.stringify(apis), 'hisense_important_apis');
+      $.msg('海信签到', '发现重要接口', path);
+    }
+    
+    // 保存请求体和响应体
+    if (method === 'POST' && $request.body) {
+      $.log(`请求体: ${$request.body.substring(0, 300)}`);
+      $persistentStore.write($request.body, `hisense_body_${path}`);
+    }
+    
+    if ($response.body) {
+      const bodyStr = typeof $response.body === 'string' ? $response.body : JSON.stringify($response.body);
+      $.log(`响应体: ${bodyStr.substring(0, 300)}`);
+      $persistentStore.write(bodyStr, `hisense_response_${path}`);
     }
   }
   
-  $.msg('海信接口', '捕获到请求', url.split('/').pop());
+  // 继续保存所有接口
+  const allApis = $persistentStore.read('hisense_all_apis') || '[]';
+  const allApiList = JSON.parse(allApis);
+  if (!allApiList.includes(path)) {
+    allApiList.push(path);
+    $persistentStore.write(JSON.stringify(allApiList), 'hisense_all_apis');
+  }
 }
 
 $done();
