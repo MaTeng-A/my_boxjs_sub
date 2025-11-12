@@ -1,33 +1,15 @@
-// 海信全面接口记录脚本
-const $ = new Env('海信全面记录');
+// 海信轻量级被动记录
+const $ = new Env('海信被动记录');
 
 if (typeof $response !== 'undefined') {
   const url = $request.url;
   const method = $request.method;
   const path = url.split('/').pop();
-  const domain = url.split('/')[2];
   
-  // 记录所有请求到日志
-  console.log(`🌐 ${method} ${path} (${domain})`);
+  // 只记录，不进行任何拦截或修改
+  console.log(`👀 观察到: ${method} ${path}`);
   
-  // 如果是POST请求，记录请求体
-  if (method === 'POST' && $request.body) {
-    console.log(`📦 请求体: ${$request.body.substring(0, 500)}`);
-  }
-  
-  // 记录响应体（如果是JSON且包含重要信息）
-  if ($response.body && typeof $response.body === 'string') {
-    try {
-      const jsonBody = JSON.parse($response.body);
-      if (jsonBody.code === 0 || jsonBody.success || jsonBody.data) {
-        console.log(`✅ 响应成功: ${JSON.stringify(jsonBody).substring(0, 300)}`);
-      }
-    } catch (e) {
-      // 不是JSON格式，忽略
-    }
-  }
-  
-  // 保存Cookie和认证信息
+  // 静默保存认证信息（不通知）
   const headers = $request.headers;
   if (headers['Cookie'] || headers['cookie']) {
     const cookie = headers['Cookie'] || headers['cookie'];
@@ -38,16 +20,16 @@ if (typeof $response !== 'undefined') {
     $persistentStore.write(headers['Authorization'], 'hisense_auth');
   }
   
-  // 保存用户ID（如果发现）
+  // 静默保存用户ID
   if (url.includes('userId=')) {
     const userIdMatch = url.match(/userId=(\d+)/);
     if (userIdMatch) {
       $persistentStore.write(userIdMatch[1], 'hisense_user_id');
-      console.log(`👤 用户ID: ${userIdMatch[1]}`);
     }
   }
 }
 
+// 立即完成，不阻塞
 $done();
 
 function Env(name) {
