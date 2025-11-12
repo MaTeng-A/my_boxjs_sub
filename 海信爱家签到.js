@@ -1,25 +1,41 @@
-// 海信域名探测脚本
+// 海信域名探测脚本（优化版）
 const $ = new Env('海信域名探测');
 
 if (typeof $request !== 'undefined') {
-  // 记录所有请求的域名
   const host = $request.url.split('/')[2];
-  $.log(`捕获到请求: ${host}`);
   
-  // 如果包含海信相关关键词，保存并通知
-  if (host.includes('hisense') || host.includes('海信') || host.includes('haier')) {
-    const saveResult = $persistentStore.write(host, 'hisense_domain');
-    $.log(`发现疑似海信域名: ${host}, 保存结果: ${saveResult}`);
-    $.msg('海信域名探测', '发现域名', host);
+  // 定义海信相关关键词
+  const hisenseKeywords = ['hisense', 'haixin', '海信', 'haier'];
+  
+  let isHisense = false;
+  for (const keyword of hisenseKeywords) {
+    if (host.toLowerCase().includes(keyword)) {
+      isHisense = true;
+      break;
+    }
+  }
+  
+  if (isHisense) {
+    $.log(`发现疑似海信域名: ${host}`);
+    
+    // 保存发现的域名
+    const savedDomains = $persistentStore.read('hisense_domains') || '';
+    if (!savedDomains.includes(host)) {
+      const newDomains = savedDomains ? `${savedDomains},${host}` : host;
+      $persistentStore.write(newDomains, 'hisense_domains');
+      $.msg('海信域名探测', '发现新域名', host);
+    }
   }
   
   $done();
 } else {
-  // 普通执行模式
-  const savedDomain = $persistentStore.read('hisense_domain');
-  if (savedDomain) {
-    $.log(`已保存的域名: ${savedDomain}`);
-    $.msg('海信域名探测', '已保存域名', savedDomain);
+  // 普通执行模式 - 显示已发现的所有域名
+  const savedDomains = $persistentStore.read('hisense_domains');
+  if (savedDomains) {
+    const domains = savedDomains.split(',');
+    $.log(`已发现 ${domains.length} 个疑似海信域名:`);
+    domains.forEach(domain => $.log(` - ${domain}`));
+    $.msg('海信域名探测', `发现 ${domains.length} 个域名`, '请查看日志详情');
   } else {
     $.log('尚未发现海信域名');
     $.msg('海信域名探测', '等待发现', '请在海信公众号内操作');
