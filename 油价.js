@@ -152,13 +152,11 @@ function getOilPrice() {
             // 构建通知消息
             let message = "";
             
-            // 添加日期时间（精确到分钟）
-            if (oilData.time) {
-                const timePart = oilData.time.split(' ')[1] || '';
-                const hourMinute = timePart.substring(0, 5);
-                const datePart = oilData.time.split(' ')[0];
-                message += `⏰ ${datePart} ${hourMinute}`;
-            }
+            // 使用当前实时时间而不是API返回的时间
+            const now = new Date();
+            const currentDate = formatDateTime(now).split(' ')[0];
+            const currentTime = formatDateTime(now).split(' ')[1];
+            message += `⏰ ${currentDate} ${currentTime}`;
             
             // 获取最近一次调价记录
             const historyKey = `oil_price_history_${currentYear}`;
@@ -214,7 +212,7 @@ function getOilPrice() {
                     const currentPrice = parseFloat(oilData[type.key]);
                     // 对齐显示格式，确保冒号对齐
                     const paddedName = type.name.padEnd(6, ' '); // 中文字符占2个英文字符宽度
-                    message += `\n🛢️ ${paddedName}：¥${currentPrice.toFixed(2)}`;
+                    message += `\n⛽️ ${paddedName}：¥${currentPrice.toFixed(2)}`;
                 }
             });
             
