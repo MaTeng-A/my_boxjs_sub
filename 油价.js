@@ -6,7 +6,72 @@
 const API_KEY = "8fb6b3bc5bbe9ee420193601d13f9162"; // 替换为您的天行数据API Key
 const TARGET_PROVINCE = "安徽"; // 设置要查询的省份
 
+// 初始化年度历史记录
+function initializeAnnualHistory() {
+    const currentYear = new Date().getFullYear().toString();
+    const lastYear = (parseInt(currentYear) - 1).toString();
+    
+    // 检查是否存在去年记录，如果有则存档
+    const lastYearHistoryKey = `oil_price_history_${lastYear}`;
+    const lastYearHistory = $persistentStore.read(lastYearHistoryKey);
+    if (lastYearHistory) {
+        console.log(`发现${lastYear}年度历史记录，共${JSON.parse(lastYearHistory).length}次调价`);
+        // 可以在这里添加存档逻辑，比如重命名key等
+    }
+    
+    // 确保当前年度记录存在
+    const currentYearHistoryKey = `oil_price_history_${currentYear}`;
+    const currentYearHistory = $persistentStore.read(currentYearHistoryKey);
+    if (!currentYearHistory) {
+        console.log(`初始化${currentYear}年度调价记录`);
+        $persistentStore.write("[]", currentYearHistoryKey);
+    } else {
+        const records = JSON.parse(currentYearHistory);
+        console.log(`${currentYear}年度已有${records.length}次调价记录`);
+    }
+}
+
+// 显示年度调价历史
+function displayAnnualHistory() {
+    const currentYear = new Date().getFullYear().toString();
+    const historyKey = `oil_price_history_${currentYear}`;
+    const historyData = $persistentStore.read(historyKey);
+    
+    console.log(`\n=== ${currentYear}年度调价历史 ===`);
+    
+    if (historyData) {
+        try {
+            const historyRecords = JSON.parse(historyData);
+            if (Array.isArray(historyRecords) && historyRecords.length > 0) {
+                console.log(`共${historyRecords.length}次调价记录：`);
+                historyRecords.forEach((record, index) => {
+                    console.log(`\n${index + 1}. ${record.date}`);
+                    if (record.changes && Object.keys(record.changes).length > 0) {
+                        Object.values(record.changes).forEach(change => {
+                            const diffIcon = change.diff > 0 ? "📈" : "📉";
+                            const diffSign = change.diff > 0 ? "+" : "";
+                            console.log(`   ${diffIcon} ${change.name}: ${change.lastPrice}→${change.currentPrice}(${diffSign}${change.diff.toFixed(2)})`);
+                        });
+                    } else {
+                        console.log("   无价格变动");
+                    }
+                });
+            } else {
+                console.log("暂无调价记录");
+            }
+        } catch (e) {
+            console.log(`解析调价历史记录时出错: ${e}`);
+        }
+    } else {
+        console.log("暂无调价记录");
+    }
+    console.log("=====================\n");
+}
+
 function getOilPrice() {
+    // 初始化年度历史记录
+    initializeAnnualHistory();
+    
     // 编码省份名称
     const encodedProvince = encodeURIComponent(TARGET_PROVINCE);
     
@@ -20,6 +85,9 @@ function getOilPrice() {
         if (error) {
             console.log("油价查询失败: " + error);
             $notification.post("油价查询失败", "网络请求错误", error);
+            
+            // 即使查询失败也显示历史记录
+            displayAnnualHistory();
             $done();
             return;
         }
@@ -33,6 +101,9 @@ function getOilPrice() {
                 $notification.post("油价查询失败", 
                                   `API错误: ${result.msg}`, 
                                   `错误码: ${result.code}`);
+                
+                // 即使API错误也显示历史记录
+                displayAnnualHistory();
                 $done();
                 return;
             }
@@ -49,9 +120,12 @@ function getOilPrice() {
             if (lastOilData) {
                 try {
                     lastPriceInfo = JSON.parse(lastOilData);
+                    console.log("上次油价数据:", lastPriceInfo);
                 } catch (e) {
                     console.log("解析上次油价数据失败: " + e);
                 }
+            } else {
+                console.log("无上次油价数据，首次运行");
             }
             
             // 检查是否有价格变动
@@ -61,9 +135,13 @@ function getOilPrice() {
                     if (oilData[type] && lastPriceInfo[type] && 
                         parseFloat(oilData[type]) !== parseFloat(lastPriceInfo[type])) {
                         hasPriceChange = true;
+                        console.log(`检测到价格变动: ${type} ${lastPriceInfo[type]} → ${oilData[type]}`);
                         break;
                     }
                 }
+            } else {
+                // 如果没有上次数据，视为首次运行，不记录为价格变动
+                console.log("首次运行，不记录价格变动");
             }
             
             // 如果有价格变动，记录变动信息
@@ -96,6 +174,7 @@ function getOilPrice() {
                                 currentPrice: currentPrice,
                                 diff: diff
                             };
+                            console.log(`记录变动: ${type.name} ${lastPrice} → ${currentPrice} (${diff > 0 ? '+' : ''}${diff.toFixed(2)})`);
                         }
                     }
                 });
@@ -122,18 +201,10 @@ function getOilPrice() {
                 
                 // 保存年度历史调价记录
                 $persistentStore.write(JSON.stringify(historyRecords), historyKey);
-                console.log(`[${currentYear}]油价变动已记录: ${JSON.stringify(changeRecord)}`);
+                console.log(`[${currentYear}]油价变动已记录，当前共${historyRecords.length}次调价记录`);
                 
-                // 在日志中输出完整历史记录
-                console.log(`=== ${currentYear}年度调价历史 ===`);
-                historyRecords.forEach((record, index) => {
-                    console.log(`${index + 1}. ${record.date}`);
-                    Object.values(record.changes).forEach(change => {
-                        const diffIcon = change.diff > 0 ? "📈" : "📉";
-                        const diffSign = change.diff > 0 ? "+" : "";
-                        console.log(`   ${diffIcon} ${change.name}: ${change.lastPrice}→${change.currentPrice}(${diffSign}${change.diff.toFixed(2)})`);
-                    });
-                });
+            } else {
+                console.log("无价格变动，无需记录");
             }
             
             // 保存当前油价数据
@@ -148,6 +219,7 @@ function getOilPrice() {
             };
             
             $persistentStore.write(JSON.stringify(saveData), "last_oil_price");
+            console.log("当前油价数据已保存");
             
             // 构建通知消息
             let message = "";
@@ -175,7 +247,7 @@ function getOilPrice() {
             }
             
             // 显示最近一次调价历史
-            if (latestChange && latestChange.changes) {
+            if (latestChange && latestChange.changes && Object.keys(latestChange.changes).length > 0) {
                 message += "\n\n📊 最近调价";
                 message += `\n🆕 ${latestChange.date.split(' ')[0]}`;
                 
@@ -216,6 +288,19 @@ function getOilPrice() {
                 }
             });
             
+            // 显示年度调价次数
+            const currentYearHistory = $persistentStore.read(`oil_price_history_${currentYear}`);
+            if (currentYearHistory) {
+                try {
+                    const records = JSON.parse(currentYearHistory);
+                    if (records.length > 0) {
+                        message += `\n\n📅 ${currentYear}年已调价${records.length}次`;
+                    }
+                } catch (e) {
+                    // 忽略错误
+                }
+            }
+            
             // 发送通知
             $notification.post(
                 `${TARGET_PROVINCE}油价提醒`, // 标题
@@ -227,6 +312,8 @@ function getOilPrice() {
             console.log("油价查询失败: " + e.message);
             $notification.post("油价查询失败", "数据处理错误", e.message);
         } finally {
+            // 无论成功与否，都显示年度历史记录
+            displayAnnualHistory();
             $done();
         }
     });
