@@ -1,26 +1,27 @@
 // 名称: GPS触发测试版（5分钟触发）
 // 描述: 专门用于测试GPS脚本功能，5分钟触发一次
-// 版本: 1.1 - 修复变量错误版
+// 版本: 1.3 - 完全重写版
 
 console.log("🧪 GPS触发测试脚本启动");
 
-function main() {
+// 主函数
+(function() {
     const gpsTimestamp = $persistentStore.read("location_timestamp");
     const gpsAge = gpsTimestamp ? Math.round((Date.now() - parseInt(gpsTimestamp)) / 60000) : 999;
     
     console.log(`📊 GPS数据年龄: ${gpsAge}分钟`);
     console.log(`⏰ 当前时间: ${new Date().toLocaleString()}`);
     
-    if (gpsAge > 5) { // 改为5分钟触发
+    if (gpsAge > 5) {
         console.log("🔄 GPS数据超过5分钟，触发更新流程");
-        testGPSUpdate(gpsAge); // 传递gpsAge参数
+        startGPSTest(gpsAge);
     } else {
         console.log("✅ GPS数据新鲜，跳过更新");
         $done();
     }
-}
+})();
 
-function testGPSUpdate(gpsAge) { // 接收gpsAge参数
+function startGPSTest(age) {
     console.log("🧪 开始GPS更新测试...");
     
     // 记录测试开始时间
@@ -49,7 +50,7 @@ function testGPSUpdate(gpsAge) { // 接收gpsAge参数
     console.log("📢 发送测试通知...");
     $notification.post(
         "🧪 GPS脚本测试", 
-        `数据年龄: ${gpsAge}分钟`, // 这里使用传入的gpsAge
+        `数据年龄: ${age}分钟`, // 使用参数age，避免变量作用域问题
         "请手动打开天气App测试GPS拦截\n完成后返回查看日志"
     );
     
@@ -83,7 +84,6 @@ function checkTestResult(testStartTime) {
             
             if (timeDiff > 0) {
                 console.log("🎉 测试成功！GPS数据已更新");
-                // 成功通知
                 $notification.post(
                     "✅ GPS测试成功", 
                     `新坐标: ${location.latitude}, ${location.longitude}`,
@@ -121,5 +121,3 @@ function checkTestResult(testStartTime) {
     
     $done();
 }
-
-main();
