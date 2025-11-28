@@ -1,6 +1,6 @@
 // 名称: GPS触发测试版（5分钟触发）
 // 描述: 专门用于测试GPS脚本功能，5分钟触发一次
-// 版本: 1.0 - 测试专用版
+// 版本: 1.1 - 修复变量错误版
 
 console.log("🧪 GPS触发测试脚本启动");
 
@@ -13,14 +13,14 @@ function main() {
     
     if (gpsAge > 5) { // 改为5分钟触发
         console.log("🔄 GPS数据超过5分钟，触发更新流程");
-        testGPSUpdate();
+        testGPSUpdate(gpsAge); // 传递gpsAge参数
     } else {
         console.log("✅ GPS数据新鲜，跳过更新");
         $done();
     }
 }
 
-function testGPSUpdate() {
+function testGPSUpdate(gpsAge) { // 接收gpsAge参数
     console.log("🧪 开始GPS更新测试...");
     
     // 记录测试开始时间
@@ -49,7 +49,7 @@ function testGPSUpdate() {
     console.log("📢 发送测试通知...");
     $notification.post(
         "🧪 GPS脚本测试", 
-        `数据年龄: ${gpsAge}分钟`,
+        `数据年龄: ${gpsAge}分钟`, // 这里使用传入的gpsAge
         "请手动打开天气App测试GPS拦截\n完成后返回查看日志"
     );
     
