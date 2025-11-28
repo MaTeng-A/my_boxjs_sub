@@ -1,7 +1,7 @@
 // 名称: 自动触发GPS更新（兼容拦截脚本版）
 // 描述: 自动打开天气App触发GPS拦截，然后关闭
 // 作者: Assistant
-// 版本: 3.3 - 无通知版+API兼容
+// 版本: 3.2 - 无通知版
 
 console.log("🔄 自动触发GPS更新启动");
 
@@ -21,22 +21,6 @@ function main() {
     }
 }
 
-function openURL(url) {
-    // 兼容不同环境的URL打开函数
-    if (typeof $tool !== 'undefined' && $tool.openURL) {
-        $tool.openURL(url); // Surge
-    } else if (typeof $task !== 'undefined' && $task.openURL) {
-        $task.openURL(url); // Quantumult X
-    } else if (typeof $loon !== 'undefined' && $loon.openURL) {
-        $loon.openURL(url); // Loon
-    } else if (typeof $httpClient !== 'undefined') {
-        // 如果都没有，尝试使用通用的方法
-        $notification.post("URL", "请手动打开", url);
-    } else {
-        console.log(`📱 请手动打开URL: ${url}`);
-    }
-}
-
 function autoTriggerWeatherApp() {
     console.log("📱 自动打开天气App...");
     
@@ -45,13 +29,13 @@ function autoTriggerWeatherApp() {
     $persistentStore.write(startTime.toString(), "gps_update_start_time");
     
     // 打开天气App触发GPS拦截
-    openURL("weather://");
+    $loon.openURL("weather://");
     
     // 等待8秒让天气App完成定位
     setTimeout(() => {
         console.log("✅ 等待完成，返回Loon");
         // 返回Loon
-        openURL("loon://");
+        $loon.openURL("loon://");
         
         // 检查是否成功获取了新坐标
         setTimeout(() => {
@@ -77,17 +61,63 @@ function checkGPSUpdateResult(startTime) {
             if (updateTime >= startTime) {
                 console.log(`🎉 GPS数据已更新 - 坐标: ${location.latitude}, ${location.longitude}`);
                 console.log(`📡 数据来源: ${location.source}`);
+                
+                // 注释掉所有通知，不再显示任何通知
+                /*
+                const currentHour = new Date().getHours();
+                if (currentHour < 23 && currentHour >= 6) {
+                    $notification.post(
+                        "📍 自动GPS更新成功", 
+                        `坐标: ${location.latitude}, ${location.longitude}`,
+                        `来源: ${location.source}\n天气App已自动刷新定位数据`
+                    );
+                }
+                */
             } else {
                 console.log("⚠️ GPS数据未更新（时间戳验证失败）");
+                // 注释掉通知
+                /*
+                const currentHour = new Date().getHours();
+                if (currentHour < 23 && currentHour >= 6) {
+                    $notification.post(
+                        "❌ 自动GPS更新失败", 
+                        "获取到旧数据",
+                        "请重试或检查网络连接"
+                    );
+                }
+                */
             }
         } catch (e) {
             console.log("❌ GPS数据解析失败:", e);
+            // 注释掉通知
+            /*
+            const currentHour = new Date().getHours();
+            if (currentHour < 23 && currentHour >= 6) {
+                $notification.post(
+                    "❌ GPS数据解析失败", 
+                    "请检查数据格式",
+                    e.toString()
+                );
+            }
+            */
         }
     } else {
         console.log("❌ GPS数据未更新");
         console.log(`详细检查:`);
         console.log(`- location_timestamp: ${newTimestamp}`);
         console.log(`- accurate_gps_location: ${gpsData ? "存在" : "不存在"}`);
+        
+        // 注释掉通知
+        /*
+        const currentHour = new Date().getHours();
+        if (currentHour < 23 && currentHour >= 6) {
+            $notification.post(
+                "❌ 自动GPS更新失败", 
+                "未能获取新坐标",
+                "请检查Loon的GPS拦截配置或网络连接"
+            );
+        }
+        */
     }
     $done();
 }
