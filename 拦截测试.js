@@ -1,7 +1,7 @@
 // 名称: GPS拦截脚本
 // 描述: 拦截天气请求获取GPS坐标
 // 作者: Assistant
-// 版本: 1.0
+// 版本: 2.0
 
 console.log("🎯 GPS拦截脚本启动");
 
@@ -42,10 +42,12 @@ if (typeof $request !== "undefined") {
         $persistentStore.write(Date.now().toString(), "location_timestamp");
         
         console.log("💾 GPS数据已保存");
+    } else {
+        console.log("❌ 未从URL中找到坐标信息");
     }
     
     $done({});
 } else {
-    console.log("📊 GPS拦截脚本就绪");
+    console.log("📊 GPS拦截脚本就绪 - 等待请求");
     $done();
 }
