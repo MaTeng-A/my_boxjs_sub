@@ -1,5 +1,4 @@
-[file name]: 自动GPS触发.js
-[file content begin]
+
 // 名称: 自动触发GPS更新（兼容拦截脚本版）
 // 描述: 自动打开天气App触发GPS拦截，然后关闭
 // 作者: Assistant
