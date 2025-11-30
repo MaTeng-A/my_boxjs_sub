@@ -12,7 +12,7 @@ function main() {
     
     console.log(`📊 GPS数据年龄: ${gpsAge}分钟`);
     
-    if (gpsAge > 5) { // 超过5分钟需要更新
+    if (gpsAge > 120) { // 超过2小时需要更新
         console.log("🔄 自动触发天气App获取GPS");
         autoTriggerWeatherApp();
     } else {
@@ -123,4 +123,3 @@ function checkGPSUpdateResult(startTime) {
 }
 
 main();
-[file content end]
