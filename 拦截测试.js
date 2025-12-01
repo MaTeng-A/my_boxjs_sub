@@ -1,9 +1,9 @@
-// 名称: 完整GPS定位（修复版）
-// 描述: 拦截天气GPS坐标并确保正常显示天气数据 - 修复availability模式
+// 名称: 完整GPS定位（最终修复版）
+// 描述: 拦截天气GPS坐标并确保正常显示天气数据 - 完整URL模式匹配
 // 作者: Assistant
-// 版本: 2.3 - 修复availability模式
+// 版本: 2.5 - 完整URL模式匹配
 
-console.log("🎯 GPS拦截脚本启动（修复版）");
+console.log("🎯 GPS拦截脚本启动（最终修复版）");
 
 if (typeof $request !== "undefined") {
     console.log("✅ 拦截到天气请求:", $request.url);
@@ -12,23 +12,39 @@ if (typeof $request !== "undefined") {
     const url = $request.url;
     let lat, lng;
     
-    // 多种URL模式匹配 - 添加availability模式
+    // 多种URL模式匹配 - 优化后的正则表达式
     const patterns = [
-        /weatherkit\.apple\.com\/v1\/weather\/[^\/]+\/([0-9.-]+)\/([0-9.-]+)/,
-        /weatherkit\.apple\.com\/v2\/weather\/[^\/]+\/([0-9.-]+)\/([0-9.-]+)/,
-        /weatherkit\.apple\.com\/v1\/availability\/([0-9.-]+)\/([0-9.-]+)/,    // 新增
-        /weatherkit\.apple\.com\/v2\/availability\/([0-9.-]+)\/([0-9.-]+)/,    // 新增
+        // 1. 带/api前缀的availability模式
+        /weatherkit\.apple\.com\/api\/v[12]\/availability\/([0-9.-]+)\/([0-9.-]+)/,
+        
+        // 2. 带/api前缀的weather模式  
+        /weatherkit\.apple\.com\/api\/v[12]\/weather\/[^\/]+\/([0-9.-]+)\/([0-9.-]+)/,
+        
+        // 3. 不带/api前缀的availability模式
+        /weatherkit\.apple\.com\/v[12]\/availability\/([0-9.-]+)\/([0-9.-]+)/,
+        
+        // 4. 不带/api前缀的weather模式
+        /weatherkit\.apple\.com\/v[12]\/weather\/[^\/]+\/([0-9.-]+)\/([0-9.-]+)/,
+        
+        // 5. 查询参数模式（lat/lng）
         /[?&]lat=([0-9.-]+)[&]?.*[?&]lng=([0-9.-]+)/,
-        /[?&]latitude=([0-9.-]+)[&]?.*[?&]longitude=([0-9.-]+)/
+        
+        // 6. 查询参数模式（latitude/longitude）
+        /[?&]latitude=([0-9.-]+)[&]?.*[?&]longitude=([0-9.-]+)/,
+        
+        // 7. 备用：从路径中直接提取数字坐标对
+        /\/([0-9.-]+)\/([0-9.-]+)(?:\?|$|\/)/,
     ];
     
-    for (let pattern of patterns) {
+    let matchedPattern = null;
+    for (let i = 0; i < patterns.length; i++) {
+        const pattern = patterns[i];
         const match = url.match(pattern);
         if (match && match[1] && match[2]) {
             lat = match[1];
             lng = match[2];
-            console.log(`🎯 使用模式匹配到坐标: ${lat}, ${lng}`);
-            console.log(`📝 匹配模式: ${pattern.toString().substring(0, 60)}...`);
+            matchedPattern = i + 1;
+            console.log(`🎯 使用模式${matchedPattern}匹配到坐标: ${lat}, ${lng}`);
             break;
         }
     }
@@ -36,14 +52,15 @@ if (typeof $request !== "undefined") {
     if (lat && lng) {
         console.log(`📍 成功提取坐标: ${lat}, ${lng}`);
         
-        // 检查是否是新位置或长时间未更新
+        // 读取上一次的位置数据
         const lastLocationData = $persistentStore.read("accurate_gps_location");
+        const lastTimestamp = $persistentStore.read("location_timestamp");
         
         if (lastLocationData) {
             try {
                 const lastLocation = JSON.parse(lastLocationData);
                 const sameLocation = (lastLocation.latitude === lat && lastLocation.longitude === lng);
-                const lastTime = parseInt($persistentStore.read("location_timestamp") || "0");
+                const lastTime = parseInt(lastTimestamp || "0");
                 const timeDiff = Date.now() - lastTime;
                 
                 if (sameLocation) {
@@ -66,7 +83,8 @@ if (typeof $request !== "undefined") {
             timestamp: Date.now(),
             source: "weatherkit_apple",
             accuracy: "high",
-            url: url
+            url: url,
+            pattern: matchedPattern
         };
         
         $persistentStore.write(JSON.stringify(locationData), "accurate_gps_location");
@@ -77,32 +95,25 @@ if (typeof $request !== "undefined") {
         
     } else {
         console.log("❌ 未找到坐标信息");
-        console.log("🔍 尝试分析URL结构:");
+        console.log("🔍 URL分析:");
         console.log(`  完整URL: ${url}`);
         
-        // 尝试手动解析其他格式
-        if (url.includes("availability")) {
-            console.log("🔍 这是一个availability请求，但未匹配到坐标");
-            // 尝试从路径中手动提取
-            const parts = url.split('/');
-            for (let i = 0; i < parts.length; i++) {
-                if (parts[i] === "availability" && i + 2 < parts.length) {
-                    const possibleLat = parts[i+1];
-                    const possibleLng = parts[i+2];
-                    if (/^[0-9.-]+$/.test(possibleLat) && /^[0-9.-]+$/.test(possibleLng)) {
-                        console.log(`🔍 从路径中找到可能坐标: ${possibleLat}, ${possibleLng}`);
-                    }
-                }
-            }
+        // 尝试更通用的提取方法
+        const coordMatch = url.match(/\/([0-9.-]+)\/([0-9.-]+)/g);
+        if (coordMatch) {
+            console.log("🔍 发现可能的坐标对:");
+            coordMatch.forEach(pair => {
+                console.log(`  ${pair}`);
+            });
         }
     }
     
-    // 关键：直接完成请求，确保天气App正常显示数据
+    // 直接完成请求
     $done({});
     
 } else {
     // 手动检查模式
-    console.log("📊 GPS状态检查（修复版）");
+    console.log("📊 GPS状态检查（最终修复版）");
     
     const locationData = $persistentStore.read("accurate_gps_location");
     const timestamp = $persistentStore.read("location_timestamp");
@@ -114,6 +125,7 @@ if (typeof $request !== "undefined") {
             
             console.log(`🌍 当前GPS数据: ${location.latitude}, ${location.longitude}`);
             console.log(`📡 来源: ${location.source || "未知"}`);
+            console.log(`🎯 匹配模式: ${location.pattern || "未知"}`);
             console.log(`⏰ 更新时间: ${timeDiff}分钟前`);
             console.log(`🕒 具体时间: ${new Date(parseInt(timestamp)).toLocaleTimeString()}`);
             
