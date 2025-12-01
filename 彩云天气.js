@@ -1,8 +1,8 @@
 // 名称: 稳定精准天气日报 (GPS增强版)
-// 描述: 基于苹果WeatherKit GPS定位 + 腾讯地图IP定位，包含诗句和明日预报
+// 描述: 基于苹果WeatherKit GPS定位，包含诗句和明日预报
 // 作者: Assistant
 // 更新时间: 2025-10-10
-// 修改: GPS缓存3小时，22:17双通知，修复显示问题，优化对齐
+// 修改: GPS永久有效，移除IP定位，修复显示问题，优化对齐
 
 // === API 配置 ===
 const CAIYUN_TOKEN = "iaJd9yTvsg3496vi";
@@ -14,48 +14,39 @@ const TIANAPI_KEY2 = "8fb6b3bc5bbe9ee420193601d13f9162";
 function main() {
     console.log("🌤️ 开始获取天气信息...");
     
-    // 优先使用GPS定位 - 使用拦截脚本的键名
+    // 只使用GPS定位 - 使用拦截脚本的键名
     const gpsData = $persistentStore.read("accurate_gps_location");
-    const gpsTimestamp = $persistentStore.read("location_timestamp");
     
-    if (gpsData && gpsTimestamp) {
+    if (gpsData) {
         try {
             const location = JSON.parse(gpsData);
-            const now = Date.now();
-            const timeDiff = now - parseInt(gpsTimestamp);
+            console.log("✅ 使用高精度GPS定位");
+            console.log(`📍 GPS坐标: ${location.latitude}, ${location.longitude}`);
             
-            // GPS数据在3小时内有效（从2小时改为3小时）
-            if (timeDiff < 3 * 60 * 60 * 1000) {
-                console.log("✅ 使用高精度GPS定位");
-                console.log(`📍 GPS坐标: ${location.latitude}, ${location.longitude}`);
-                
-                // 使用GPS坐标获取地址信息
-                getAddressFromGPSCoordinates(location.latitude, location.longitude)
-                    .then(address => {
-                        getCaiyunWeather(
-                            location.latitude, 
-                            location.longitude, 
-                            address.province, 
-                            address.city, 
-                            address.district
-                        );
-                    })
-                    .catch(error => {
-                        console.log("❌ 地址获取失败，使用坐标直接获取天气:", error);
-                        getCaiyunWeather(location.latitude, location.longitude, "", "", "");
-                    });
-                return;
-            } else {
-                console.log("📝 GPS定位数据已过期，使用IP定位");
-            }
+            // 使用GPS坐标获取地址信息
+            getAddressFromGPSCoordinates(location.latitude, location.longitude)
+                .then(address => {
+                    getCaiyunWeather(
+                        location.latitude, 
+                        location.longitude, 
+                        address.province, 
+                        address.city, 
+                        address.district
+                    );
+                })
+                .catch(error => {
+                    console.log("❌ 地址获取失败，使用坐标直接获取天气:", error);
+                    getCaiyunWeather(location.latitude, location.longitude, "", "", "");
+                });
+            return;
         } catch (e) {
-            console.log("❌ GPS定位数据解析失败，使用IP定位:", e);
+            console.log("❌ GPS定位数据解析失败:", e);
+            handleError("GPS定位失败", "GPS数据格式错误，请确保GPS拦截脚本正常运行");
         }
+    } else {
+        console.log("❌ 未找到GPS定位数据");
+        handleError("定位失败", "未找到GPS定位数据，请确保GPS拦截脚本已启用并运行");
     }
-    
-    // 降级到IP定位
-    console.log("🔄 使用IP定位");
-    getIPLocation();
 }
 
 // === 根据GPS坐标获取地址信息 ===
@@ -86,42 +77,6 @@ function getAddressFromGPSCoordinates(lat, lng) {
                 reject(e);
             }
         });
-    });
-}
-
-// === 腾讯地图IP定位 ===
-function getIPLocation() {
-    const ipUrl = `https://apis.map.qq.com/ws/location/v1/ip?key=${TENCENT_TOKEN}`;
-    
-    $httpClient.get(ipUrl, function(error, response, data) {
-        if (error) {
-            handleError("定位失败", error);
-            return;
-        }
-        
-        try {
-            const result = JSON.parse(data);
-            
-            if (result.status === 0) {
-                const location = result.result;
-                const lat = location.location.lat;
-                const lng = location.location.lng;
-                const province = location.ad_info.province;
-                const city = location.ad_info.city;
-                const district = location.ad_info.district;
-                
-                console.log(`📍 IP定位结果: ${province}${city}${district}`);
-                
-                // 获取天气数据
-                getCaiyunWeather(lat, lng, province, city, district);
-                
-            } else {
-                handleError("定位失败", result.message);
-            }
-            
-        } catch (e) {
-            handleError("定位数据解析失败", e.message);
-        }
     });
 }
 
