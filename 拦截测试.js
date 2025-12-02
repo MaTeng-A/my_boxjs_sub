@@ -1,13 +1,13 @@
-// 名称: Loon版GPS拦截器
-// 描述: 在Loon中拦截多种应用的GPS坐标
-// 版本: 5.0 - Loon适配版
+// 名称: 精准GPS拦截器
+// 描述: 精准拦截天气和高德地图的GPS坐标
+// 版本: 6.0 - 精准拦截版
+// 作者: Assistant
+// 更新时间: 2025-12-02
+
+console.log("🎯 精准GPS拦截器启动 - 仅拦截天气和高德地图");
 
 const isRequest = typeof $request !== 'undefined';
-console.log(`🎯 GPS拦截器启动 (模式: ${isRequest ? '拦截' : '手动检查'})`);
-
-// 存储键名
-const STORAGE_KEY = "gps_location_data";
-const TIMESTAMP_KEY = "gps_timestamp";
+console.log(`📱 运行模式: ${isRequest ? '拦截请求' : '手动检查'}`);
 
 if (isRequest) {
     handleRequest($request);
@@ -16,48 +16,76 @@ if (isRequest) {
 }
 
 function handleRequest(request) {
-    console.log("✅ 拦截到请求:", request.url);
-    
     const url = request.url;
     const headers = request.headers || {};
-    let lat, lng, appName, sourceType;
     
-    // 判断应用来源并提取坐标
-    const detectedApp = detectAppAndExtractCoords(url, headers);
+    console.log("📡 拦截到请求:", url.substring(0, 100) + (url.length > 100 ? "..." : ""));
     
-    if (detectedApp) {
-        lat = detectedApp.lat;
-        lng = detectedApp.lng;
-        appName = detectedApp.appName;
-        sourceType = detectedApp.sourceType;
-        console.log(`🎯 从 ${appName} 提取坐标: ${lat}, ${lng}`);
-        
-        // 保存GPS数据
-        saveLocationData(lat, lng, appName, url, sourceType);
-        
-        // 获取地址并发送通知
-        getAddressAndNotify(lat, lng, appName, Date.now());
-    } else {
-        console.log("❌ 未找到坐标信息");
+    // 只处理天气和高德地图的请求
+    const isWeatherRequest = url.includes('weatherkit.apple.com');
+    const isAmapRequest = url.includes('amap.com') || url.includes('gaode.com');
+    
+    if (!isWeatherRequest && !isAmapRequest) {
+        console.log("🚫 非目标应用请求，跳过处理");
+        $done({});
+        return;
     }
     
-    // 在Loon中完成请求
+    let lat, lng, appName;
+    
+    if (isWeatherRequest) {
+        console.log("🌤️ 识别为天气应用请求");
+        const coords = extractWeatherCoordinates(url);
+        if (coords) {
+            lat = coords.lat;
+            lng = coords.lng;
+            appName = "苹果天气";
+        }
+    } else if (isAmapRequest) {
+        console.log("🗺️ 识别为高德地图请求");
+        const coords = extractAmapCoordinates(url, headers);
+        if (coords) {
+            lat = coords.lat;
+            lng = coords.lng;
+            appName = "高德地图";
+        }
+    }
+    
+    // 验证坐标有效性
+    if (lat && lng && isValidCoordinate(lat, lng)) {
+        console.log(`✅ 成功提取有效坐标: ${lat}, ${lng} (来源: ${appName})`);
+        
+        // 保存GPS数据
+        saveLocationData(lat, lng, appName, url);
+        
+        // 发送通知
+        sendImmediateNotification(lat, lng, appName);
+        
+    } else {
+        console.log("❌ 未找到有效坐标或坐标无效");
+        
+        // 记录错误信息以便调试
+        if (lat && lng) {
+            console.log(`⚠️ 无效坐标: ${lat}, ${lng} (可能匹配到其他参数)`);
+        }
+    }
+    
     $done({});
 }
 
 function handleManualCheck() {
     console.log("📊 GPS状态手动检查");
     
-    const locationData = $persistentStore.read(STORAGE_KEY);
-    const timestamp = $persistentStore.read(TIMESTAMP_KEY);
+    const locationData = $persistentStore.read("gps_location_data");
+    const timestamp = $persistentStore.read("gps_timestamp");
     
     if (locationData && timestamp) {
         try {
             const data = JSON.parse(locationData);
             const timeDiff = Math.round((Date.now() - data.timestamp) / 60000);
-            const updateTime = new Date(data.timestamp).toLocaleString('zh-CN');
             
-            getAddressAndNotify(data.latitude, data.longitude, data.appName, data.timestamp, timeDiff, updateTime);
+            // 获取地址并发送详细通知
+            getDetailedAddressAndNotify(data.latitude, data.longitude, data.appName, data.timestamp, timeDiff);
             
         } catch (e) {
             console.log("❌ 数据解析失败:", e);
@@ -66,161 +94,202 @@ function handleManualCheck() {
         }
     } else {
         console.log("❌ 无GPS定位数据");
-        sendSimpleNotification("📍 GPS定位状态", "等待定位数据", "请打开任意定位应用触发GPS定位");
+        sendSimpleNotification("📍 GPS定位状态", "等待定位数据", "请打开天气App或高德地图触发定位");
         $done();
     }
 }
 
-// 应用检测和坐标提取函数
-function detectAppAndExtractCoords(url, headers) {
-    let lat, lng, appName, sourceType;
+// 提取天气应用坐标
+function extractWeatherCoordinates(url) {
+    // 天气应用坐标提取模式
+    const weatherPatterns = [
+        /weatherkit\.apple\.com\/v[12]\/weather\/[^\/]+\/([0-9.-]+)\/([0-9.-]+)/,
+        /[?&]lat=([0-9.-]+)[^&]*[?&]lng=([0-9.-]+)/i
+    ];
     
-    // 1. 天气相关应用
-    if (url.includes('weatherkit.apple.com')) {
-        const weatherPatterns = [
-            /weatherkit\.apple\.com\/v[12]\/weather\/[^\/]+\/([0-9.-]+)\/([0-9.-]+)/,
-            /[?&]lat=([0-9.-]+)[^&]*[?&]l[on]*g=([0-9.-]+)/i
-        ];
-        
-        for (let pattern of weatherPatterns) {
-            const match = url.match(pattern);
-            if (match && match[1] && match[2]) {
-                lat = parseFloat(match[1]).toFixed(6);
-                lng = parseFloat(match[2]).toFixed(6);
-                appName = "苹果天气";
-                sourceType = "weather";
-                break;
-            }
-        }
-    }
-    
-    // 2. 高德地图
-    else if (url.includes('amap.com') || url.includes('gaode.com')) {
-        const patterns = [
-            /[?&]location=([0-9.-]+)%2C([0-9.-]+)/,
-            /[?&]lat=([0-9.-]+)[^&]*[?&]lon=([0-9.-]+)/i,
-            /[?&]x=([0-9.-]+)[^&]*[?&]y=([0-9.-]+)/i
-        ];
-        
-        for (let pattern of patterns) {
-            const match = url.match(pattern);
-            if (match && match[1] && match[2]) {
-                lat = parseFloat(match[1]).toFixed(6);
-                lng = parseFloat(match[2]).toFixed(6);
-                appName = "高德地图";
-                sourceType = "map";
-                break;
-            }
-        }
-    }
-    
-    // 3. 百度地图
-    else if (url.includes('baidu.com') && (url.includes('map') || url.includes('location'))) {
-        const patterns = [
-            /[?&]lat=([0-9.-]+)[^&]*[?&]lng=([0-9.-]+)/i,
-            /[?&]pointx=([0-9.-]+)[^&]*[?&]pointy=([0-9.-]+)/i,
-            /[?&]coord=([0-9.-]+)%2C([0-9.-]+)/
-        ];
-        
-        for (let pattern of patterns) {
-            const match = url.match(pattern);
-            if (match && match[1] && match[2]) {
-                lat = parseFloat(match[1]).toFixed(6);
-                lng = parseFloat(match[2]).toFixed(6);
-                appName = "百度地图";
-                sourceType = "map";
-                break;
-            }
-        }
-    }
-    
-    // 4. 小红书
-    else if (url.includes('xiaohongshu.com') || url.includes('xhs.cn')) {
-        const pattern = /[?&](?:lat|latitude)=([0-9.-]+)[^&]*[?&](?:lng|longitude)=([0-9.-]+)/i;
+    for (let pattern of weatherPatterns) {
         const match = url.match(pattern);
-        
         if (match && match[1] && match[2]) {
-            lat = parseFloat(match[1]).toFixed(6);
-            lng = parseFloat(match[2]).toFixed(6);
-            appName = "小红书";
-            sourceType = "social";
-        }
-    }
-    
-    // 5. 通用匹配
-    if (!lat) {
-        const genericPatterns = [
-            /[?&]lat=([0-9.-]+)[^&]*[?&]l[on]*g=([0-9.-]+)/i,
-            /[?&]latitude=([0-9.-]+)[^&]*[?&]longitude=([0-9.-]+)/i,
-            /[?&]x=([0-9.-]+)[^&]*[?&]y=([0-9.-]+)/i,
-            /[?&]coord=([0-9.-]+)[,%2C]([0-9.-]+)/i,
-            /[?&]location=([0-9.-]+)[,%2C]([0-9.-]+)/i
-        ];
-        
-        for (let pattern of genericPatterns) {
-            const match = url.match(pattern);
-            if (match && match[1] && match[2]) {
-                lat = parseFloat(match[1]).toFixed(6);
-                lng = parseFloat(match[2]).toFixed(6);
-                
-                // 尝试从域名推断应用名称
-                const domain = extractDomain(url);
-                appName = getAppNameFromDomain(domain) || "未知应用";
-                sourceType = "generic";
-                break;
+            const lat = parseFloat(match[1]).toFixed(6);
+            const lng = parseFloat(match[2]).toFixed(6);
+            
+            // 验证坐标范围
+            if (isValidCoordinate(lat, lng)) {
+                console.log(`🌤️ 从天气URL提取坐标: ${lat}, ${lng}`);
+                return { lat, lng };
             }
         }
-    }
-    
-    if (lat && lng) {
-        return { lat, lng, appName: appName || "未知应用", sourceType: sourceType || "unknown" };
     }
     
     return null;
 }
 
+// 提取高德地图坐标
+function extractAmapCoordinates(url, headers) {
+    // 高德地图API常见的坐标参数
+    const amapPatterns = [
+        // location参数格式: 经度,纬度 或 纬度,经度
+        /[?&]location=([0-9.-]+)[,%2C]([0-9.-]+)/,
+        // lat和lon参数
+        /[?&]lat=([0-9.-]+)[^&]*[?&]lon=([0-9.-]+)/i,
+        // x和y参数（有时x是经度，y是纬度）
+        /[?&]x=([0-9.-]+)[^&]*[?&]y=([0-9.-]+)/i,
+        // 直接坐标对
+        /[?&]coords=([0-9.-]+)[,%2C]([0-9.-]+)/i
+    ];
+    
+    for (let pattern of amapPatterns) {
+        const match = url.match(pattern);
+        if (match && match[1] && match[2]) {
+            let lat, lng;
+            
+            // 高德地图通常使用GCJ-02坐标系
+            // location参数通常是 经度,纬度
+            if (pattern.toString().includes('location')) {
+                // location=116.397428,39.90923 格式：经度,纬度
+                lng = parseFloat(match[1]).toFixed(6);
+                lat = parseFloat(match[2]).toFixed(6);
+            } else {
+                // 其他情况假设第一个是纬度，第二个是经度
+                lat = parseFloat(match[1]).toFixed(6);
+                lng = parseFloat(match[2]).toFixed(6);
+            }
+            
+            if (isValidCoordinate(lat, lng)) {
+                console.log(`🗺️ 从高德地图URL提取坐标: ${lat}, ${lng}`);
+                return { lat, lng };
+            }
+        }
+    }
+    
+    // 尝试从POST数据中提取（如果有body的话）
+    if (headers['Content-Type'] && headers['Content-Type'].includes('application/json')) {
+        console.log("📦 检测到JSON格式请求，需要处理请求体");
+        // 注意：在Loon中，请求体可能需要特殊处理
+    }
+    
+    return null;
+}
+
+// 验证坐标有效性
+function isValidCoordinate(lat, lng) {
+    const latNum = parseFloat(lat);
+    const lngNum = parseFloat(lng);
+    
+    // 有效纬度范围：-90 到 90
+    // 有效经度范围：-180 到 180
+    // 排除明显无效的值（如843, 411）
+    if (isNaN(latNum) || isNaN(lngNum)) {
+        return false;
+    }
+    
+    if (latNum < -90 || latNum > 90) {
+        console.log(`❌ 纬度 ${lat} 超出有效范围(-90~90)`);
+        return false;
+    }
+    
+    if (lngNum < -180 || lngNum > 180) {
+        console.log(`❌ 经度 ${lng} 超出有效范围(-180~180)`);
+        return false;
+    }
+    
+    // 中国境内的坐标范围（大致）
+    if (latNum > 3 && latNum < 54 && lngNum > 73 && lngNum < 136) {
+        return true;
+    }
+    
+    // 如果不是中国境内坐标，也允许但记录日志
+    console.log(`🌍 检测到中国境外坐标: ${lat}, ${lng}`);
+    return true;
+}
+
 // 保存位置数据
-function saveLocationData(lat, lng, appName, url, sourceType) {
+function saveLocationData(lat, lng, appName, url) {
     const locationData = {
         latitude: lat,
         longitude: lng,
         timestamp: Date.now(),
         appName: appName,
-        sourceType: sourceType,
         url: url,
         accuracy: "高精度GPS",
-        device: "iPhone"
+        source: appName === "苹果天气" ? "weatherkit" : "amap"
     };
     
-    $persistentStore.write(JSON.stringify(locationData), STORAGE_KEY);
-    $persistentStore.write(Date.now().toString(), TIMESTAMP_KEY);
+    $persistentStore.write(JSON.stringify(locationData), "gps_location_data");
+    $persistentStore.write(Date.now().toString(), "gps_timestamp");
+    
     console.log("💾 GPS数据已保存");
+    
+    // 同时获取地址信息（异步）
+    getAddressAsync(lat, lng);
 }
 
-// 获取地址并发送通知
-function getAddressAndNotify(lat, lng, appName, timestamp, timeDiffMinutes = null, updateTimeStr = null) {
+// 异步获取地址信息
+function getAddressAsync(lat, lng) {
+    const TENCENT_TOKEN = "F7NBZ-MC3R3-6AV3J-RR75X-KKDTE-EKFLQ";
+    const geocoderUrl = `https://apis.map.qq.com/ws/geocoder/v1/?key=${TENCENT_TOKEN}&location=${lat},${lng}`;
+    
+    $httpClient.get(geocoderUrl, function(error, response, data) {
+        if (!error && response.status === 200) {
+            try {
+                const result = JSON.parse(data);
+                if (result.status === 0) {
+                    const address = result.result.address_component;
+                    const addressText = `${address.province || ''}${address.city || ''}${address.district || ''}`;
+                    
+                    // 更新保存的位置数据
+                    const locationData = JSON.parse($persistentStore.read("gps_location_data") || "{}");
+                    locationData.address = addressText;
+                    locationData.fullAddress = result.result.formatted_addresses?.recommend || result.result.address;
+                    $persistentStore.write(JSON.stringify(locationData), "gps_location_data");
+                    
+                    console.log("📍 地址信息已保存:", addressText);
+                }
+            } catch (e) {
+                console.log("❌ 地址解析失败:", e);
+            }
+        }
+    });
+}
+
+// 发送即时通知（拦截时）
+function sendImmediateNotification(lat, lng, appName) {
+    const timestamp = Date.now();
+    const updateTime = new Date(timestamp).toLocaleTimeString('zh-CN', { 
+        hour12: false, 
+        hour: '2-digit', 
+        minute: '2-digit' 
+    });
+    
+    // 读取已保存的地址信息
+    const locationData = JSON.parse($persistentStore.read("gps_location_data") || "{}");
+    const addressText = locationData.address || "地址获取中...";
+    
+    const title = "📍 GPS定位成功";
+    const subtitle = addressText;
+    const body = `数据来源: ${appName}\n坐标精度: 高精度GPS\n经纬度: ${lat}, ${lng}\n更新时间: ${updateTime}`;
+    
+    $notification.post(title, subtitle, body);
+    console.log("📲 已发送即时通知");
+}
+
+// 获取详细地址并发送通知（手动检查时）
+function getDetailedAddressAndNotify(lat, lng, appName, timestamp, timeDiffMinutes) {
     const TENCENT_TOKEN = "F7NBZ-MC3R3-6AV3J-RR75X-KKDTE-EKFLQ";
     const geocoderUrl = `https://apis.map.qq.com/ws/geocoder/v1/?key=${TENCENT_TOKEN}&location=${lat},${lng}`;
     
     console.log("🗺️ 获取详细地址信息...");
     
     $httpClient.get(geocoderUrl, function(error, response, data) {
-        let addressText = "";
-        let fullAddress = "";
+        let addressText = "地址解析失败";
         
         if (!error && response.status === 200) {
             try {
                 const result = JSON.parse(data);
                 if (result.status === 0) {
                     const address = result.result.address_component;
-                    
-                    // 构建地址文本（省市区街道）
                     addressText = `${address.province || ''}${address.city || ''}${address.district || ''}`;
                     
-                    // 获取详细地址
-                    fullAddress = result.result.formatted_addresses?.recommend || result.result.address || addressText;
-                    
-                    // 如果有道路信息，添加到地址文本
                     if (address.street) {
                         addressText += address.street;
                         if (address.street_number) {
@@ -230,94 +299,25 @@ function getAddressAndNotify(lat, lng, appName, timestamp, timeDiffMinutes = nul
                     
                     console.log("✅ 地址解析成功:", addressText);
                 } else {
-                    addressText = "地址解析失败";
-                    fullAddress = `错误码: ${result.status}`;
+                    console.log("❌ 腾讯地图API错误:", result.message);
                 }
             } catch (e) {
-                addressText = "地址数据解析错误";
-                fullAddress = e.message;
+                console.log("❌ 地址数据解析错误:", e);
             }
         } else {
-            addressText = "网络请求失败";
-            fullAddress = error || `状态码: ${response?.status}`;
+            console.log("❌ 网络请求失败:", error || response.status);
         }
         
-        // 准备通知内容
-        const now = Date.now();
-        const timeDiff = timeDiffMinutes !== null ? timeDiffMinutes : Math.round((now - timestamp) / 60000);
-        const updateTime = updateTimeStr || new Date(timestamp).toLocaleString('zh-CN');
+        const updateTime = new Date(timestamp).toLocaleString('zh-CN');
+        const title = "📍 GPS定位状态";
+        const subtitle = addressText;
+        const body = `数据来源: ${appName}\n更新时间: ${timeDiffMinutes}分钟前 (${updateTime})\n经纬度: ${lat}, ${lng}\n坐标精度: 高精度GPS`;
         
-        // 构建通知
-        const title = "📍 GPS定位成功";
-        const subtitle = addressText || "未知位置";
-        
-        let body = "";
-        if (addressText && fullAddress && addressText !== fullAddress) {
-            body += `${addressText}\n`;
-            body += `更新时间: ${timeDiff}分钟前\n`;
-            body += `数据来源: ${appName}\n`;
-            body += `坐标精度: 高精度GPS\n`;
-            body += `经纬度: ${lat}, ${lng}\n\n`;
-            body += `详细地址:\n${fullAddress}\n\n`;
-            body += `${timeDiff}分钟前`;
-        } else {
-            body += `${addressText || fullAddress}\n`;
-            body += `更新时间: ${timeDiff}分钟前\n`;
-            body += `数据来源: ${appName}\n`;
-            body += `坐标精度: 高精度GPS\n`;
-            body += `经纬度: ${lat}, ${lng}\n\n`;
-            body += `${timeDiff}分钟前`;
-        }
-        
-        // 在Loon中发送通知
         $notification.post(title, subtitle, body);
-        
-        console.log(`📍 发送通知 - 来源: ${appName}, 坐标: ${lat}, ${lng}`);
+        console.log("📲 已发送详细通知");
         
         $done();
     });
-}
-
-// 辅助函数：提取域名
-function extractDomain(url) {
-    try {
-        const urlObj = new URL(url);
-        return urlObj.hostname;
-    } catch (e) {
-        return "";
-    }
-}
-
-// 辅助函数：根据域名推断应用名称
-function getAppNameFromDomain(domain) {
-    const domainMap = {
-        'weibo.com': '微博',
-        'douyin.com': '抖音',
-        'toutiao.com': '今日头条',
-        'taobao.com': '淘宝',
-        'jd.com': '京东',
-        'ele.me': '饿了么',
-        'ctrip.com': '携程',
-        'qunar.com': '去哪儿',
-        'didiglobal.com': '滴滴出行',
-        'meituan.com': '美团',
-        'dianping.com': '大众点评',
-        'amap.com': '高德地图',
-        'gaode.com': '高德地图',
-        'baidu.com': '百度地图',
-        'map.qq.com': '腾讯地图',
-        'xiaohongshu.com': '小红书',
-        'xhs.cn': '小红书',
-        'weatherkit.apple.com': '苹果天气'
-    };
-    
-    for (const [key, value] of Object.entries(domainMap)) {
-        if (domain.includes(key)) {
-            return value;
-        }
-    }
-    
-    return null;
 }
 
 // 发送简单通知
