@@ -1,8 +1,8 @@
-// 名称: 苹果天气GPS拦截器
-// 描述: 拦截苹果天气GPS坐标并立即发送详细通知
-// 版本: 9.0 - 简化通知版
+// 名称: 苹果天气GPS拦截器 (最终版)
+// 描述: 精准拦截苹果天气GPS坐标，发送精美排版通知
+// 版本: 10.0 - 最终版
 // 作者: MaTeng-A
-// 更新时间: 2025-12-02
+// 更新时间: 2025-12-03
 
 console.log("🎯 苹果天气GPS拦截器启动");
 
@@ -40,7 +40,7 @@ function handleRequest(request) {
         // 保存GPS数据
         saveLocationData(lat, lng, currentTime);
         
-        // 【核心修改】去除判断，直接获取地址并发送通知
+        // 立即发送通知
         console.log("📲 准备发送通知");
         getDetailedAddressAndNotify(lat, lng, "weatherkit_apple", currentTime);
         
@@ -73,7 +73,6 @@ function handleManualCheck() {
     }
 }
 
-// 提取天气应用坐标 (函数未作修改)
 function extractWeatherCoordinates(url) {
     const weatherPatterns = [
         /weatherkit\.apple\.com\/v[12]\/weather\/[^\/]+\/([0-9.-]+)\/([0-9.-]+)/,
@@ -98,17 +97,32 @@ function extractWeatherCoordinates(url) {
             }
         }
     }
+    
+    // 通用匹配模式
+    const generalPattern = /[?&](?:lat|latitude)=([0-9.-]+).*?[?&](?:lng|longitude)=([0-9.-]+)/i;
+    const generalMatch = url.match(generalPattern);
+    if (generalMatch && generalMatch[1] && generalMatch[2]) {
+        let lat = parseFloat(generalMatch[1]).toFixed(6);
+        let lng = parseFloat(generalMatch[2]).toFixed(6);
+        
+        lat = simplifyCoordinate(lat);
+        lng = simplifyCoordinate(lng);
+        
+        if (isValidCoordinate(lat, lng)) {
+            console.log(`🌤️ 从通用模式提取坐标: ${lat}, ${lng}`);
+            return { lat, lng };
+        }
+    }
+    
     return null;
 }
 
-// 简化坐标显示 (函数未作修改)
 function simplifyCoordinate(coord) {
     let num = parseFloat(coord);
     if (num % 1 === 0) return num.toString();
     return num.toFixed(6).replace(/(\.\d*?)0+$/, '$1').replace(/\.$/, '');
 }
 
-// 验证坐标有效性 (函数未作修改)
 function isValidCoordinate(lat, lng) {
     const latNum = parseFloat(lat);
     const lngNum = parseFloat(lng);
@@ -118,12 +132,11 @@ function isValidCoordinate(lat, lng) {
     return true;
 }
 
-// 保存位置数据 (增加了时间戳参数)
 function saveLocationData(lat, lng, timestamp) {
     const locationData = {
         latitude: lat,
         longitude: lng,
-        timestamp: timestamp, // 使用传入的准确时间戳
+        timestamp: timestamp,
         appName: "weatherkit_apple",
         accuracy: "高精度GPS",
         source: "weatherkit"
@@ -136,7 +149,6 @@ function saveLocationData(lat, lng, timestamp) {
     getAddressAsync(lat, lng);
 }
 
-// 异步获取地址信息 (函数未作修改)
 function getAddressAsync(lat, lng) {
     const TENCENT_TOKEN = "F7NBZ-MC3R3-6AV3J-RR75X-KKDTE-EKFLQ";
     const geocoderUrl = `https://apis.map.qq.com/ws/geocoder/v1/?key=${TENCENT_TOKEN}&location=${lat},${lng}`;
@@ -163,7 +175,6 @@ function getAddressAsync(lat, lng) {
     });
 }
 
-// 【核心修改】获取详细地址并发送通知 (移除timeDiff判断，统一处理)
 function getDetailedAddressAndNotify(lat, lng, source, timestamp, timeDiffMinutes = null) {
     const TENCENT_TOKEN = "F7NBZ-MC3R3-6AV3J-RR75X-KKDTE-EKFLQ";
     const geocoderUrl = `https://apis.map.qq.com/ws/geocoder/v1/?key=${TENCENT_TOKEN}&location=${lat},${lng}`;
@@ -216,25 +227,37 @@ function getDetailedAddressAndNotify(lat, lng, source, timestamp, timeDiffMinute
             hour12: false
         }).replace(/\//g, '-');
         
-        // 构建通知内容
+        // ======================================
+        // 构建通知内容 (精美Emoji图标版)
+        // ======================================
         const title = "📍 GPS定位成功";
-        const subtitle = addressText;
-        let body = `拦截时间: ${updateTime}\n`;
-        body += `数据来源: ${source}\n`;
-        body += `坐标精度: 高精度GPS\n`;
-        body += `经纬度: ${lat}, ${lng}\n\n`;
-        body += `详细地址:\n${detailedAddress || addressText}`;
+        const subtitle = `📍 ${addressText}`;
+        
+        let body = "";
+        body += `📍 ${addressText}\n\n`;
+        
+        if (timeDiffMinutes !== null && timeDiffMinutes > 0) {
+            body += `⏰ 更新时间: ${timeDiffMinutes}分钟前\n`;
+        } else {
+            body += `⏰ 拦截时间: ${updateTime}\n`;
+        }
+        
+        body += `📡 数据来源: ${source}\n`;
+        body += `🌐 坐标精度: 高精度GPS\n`;
+        body += `🌎 经纬度: ${lat}, ${lng}\n\n`;
+        body += `🏠 详细地址:\n   ${detailedAddress || addressText}`;
+        
+        // ======================================
         
         // 发送通知
         $notification.post(title, subtitle, body);
         console.log("📲 已发送通知");
         
-        // 【重要】无论何种模式，最后都必须调用$done
+        // 结束请求
         $done({});
     });
 }
 
-// 发送简单通知
 function sendSimpleNotification(title, subtitle, body) {
     $notification.post(title, subtitle, body);
     $done();
