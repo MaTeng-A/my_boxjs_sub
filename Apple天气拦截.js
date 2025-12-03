@@ -1,6 +1,6 @@
-// 名称: 苹果天气GPS拦截器 (最终版)
-// 描述: 精准拦截苹果天气GPS坐标，发送精美排版通知
-// 版本: 10.0 - 最终版
+// 名称: 苹果天气GPS拦截器 (完整版)
+// 描述: 精准拦截苹果天气GPS坐标，发送精美排版通知，支持静默时段
+// 版本: 11.0 - 完整功能版
 // 作者: MaTeng-A
 // 更新时间: 2025-12-03
 
@@ -40,8 +40,8 @@ function handleRequest(request) {
         // 保存GPS数据
         saveLocationData(lat, lng, currentTime);
         
-        // 立即发送通知
-        console.log("📲 准备发送通知");
+        // 立即获取地址并处理通知
+        console.log("📲 准备处理通知");
         getDetailedAddressAndNotify(lat, lng, "weatherkit_apple", currentTime);
         
     } else {
@@ -246,21 +246,29 @@ function getDetailedAddressAndNotify(lat, lng, source, timestamp, timeDiffMinute
 
         let body = ""; // 正文直接从时间信息开始
         if (timeDiffMinutes !== null && timeDiffMinutes > 0) {
-        body += `⏰ 更新时间: ${timeDiffMinutes}分钟前\n`;
+            body += `⏰ 更新时间: ${timeDiffMinutes}分钟前\n`;
         } else {
-        body += `⏰ 拦截时间: ${updateTime}\n`;
+            body += `⏰ 拦截时间: ${updateTime}\n`;
         }
         
         body += `📡 数据来源: ${source}\n`;
         body += `🌐 坐标精度: 高精度GPS\n`;
-        body += `🌎 经纬度: ${lat}, ${lng}\n\n`;
-        body += `🏠 详细地址:\n       ${detailedAddress || addressText}`; // 有换行符 \n 和缩进空格
+        body += `🌎 经纬度: ${lat}, ${lng}\n`;
+        body += `🏠 详细地址: ${detailedAddress || addressText}`; // 直接连接，确保文字对齐
         
         // ======================================
         
-        // 发送通知
-        $notification.post(title, subtitle, body);
-        console.log("📲 已发送通知");
+        // 检查当前时间是否在静默时段 (23:00 - 06:00)
+        const currentHour = new Date().getHours();
+        const isSilentHours = currentHour >= 23 || currentHour < 6;
+        
+        if (isSilentHours) {
+            console.log(`🌙 静默时段 (${currentHour}:00)，跳过通知发送`);
+        } else {
+            // 发送通知
+            $notification.post(title, subtitle, body);
+            console.log("📲 已发送通知");
+        }
         
         // 结束请求
         $done({});
