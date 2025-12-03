@@ -133,6 +133,7 @@ function isValidCoordinate(lat, lng) {
 }
 
 function saveLocationData(lat, lng, timestamp) {
+    // 原始数据，用于Apple天气拦截脚本自身
     const locationData = {
         latitude: lat,
         longitude: lng,
@@ -143,7 +144,17 @@ function saveLocationData(lat, lng, timestamp) {
     };
     
     $persistentStore.write(JSON.stringify(locationData), "gps_location_data");
-    console.log("💾 GPS数据已保存");
+    console.log("💾 GPS数据已保存 (gps_location_data)");
+    
+    // 同时保存为彩云天气脚本期望的格式
+    const accurateGpsLocation = {
+        latitude: lat,
+        longitude: lng,
+        source: "weatherkit_apple_full"  // 彩云天气脚本中判断的条件
+    };
+    
+    $persistentStore.write(JSON.stringify(accurateGpsLocation), "accurate_gps_location");
+    console.log("💾 GPS数据已保存 (accurate_gps_location)");
     
     // 异步获取地址信息
     getAddressAsync(lat, lng);
