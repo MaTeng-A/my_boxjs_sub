@@ -231,16 +231,14 @@ function getDetailedAddressAndNotify(lat, lng, source, timestamp, timeDiffMinute
         // 构建通知内容 (精美Emoji图标版)
         // ======================================
         const title = "📍 GPS定位成功";
-        const subtitle = `📍 ${addressText}`;
-        
-        let body = "";
-        body += `📍 ${addressText}\n\n`;
-        
-        if (timeDiffMinutes !== null && timeDiffMinutes > 0) {
-            body += `⏰ 更新时间: ${timeDiffMinutes}分钟前\n`;
-        } else {
-            body += `⏰ 拦截时间: ${updateTime}\n`;
-        }
+const subtitle = `📍 ${addressText}`; // 地址仅在副标题显示一次
+
+let body = ""; // 正文直接从时间信息开始
+if (timeDiffMinutes !== null && timeDiffMinutes > 0) {
+    body += `⏰ 更新时间: ${timeDiffMinutes}分钟前\n`;
+} else {
+    body += `⏰ 拦截时间: ${updateTime}\n`;
+}
         
         body += `📡 数据来源: ${source}\n`;
         body += `🌐 坐标精度: 高精度GPS\n`;
