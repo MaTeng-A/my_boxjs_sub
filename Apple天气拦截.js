@@ -254,7 +254,7 @@ function getDetailedAddressAndNotify(lat, lng, source, timestamp, timeDiffMinute
         body += `📡 数据来源: ${source}\n`;
         body += `🌐 坐标精度: 高精度GPS\n`;
         body += `🌎 经纬度: ${lat}, ${lng}\n\n`;
-        body += `🏠　详细地址:\n       ${detailedAddress || addressText}`; // 注意：🏠和“详”之间是一个全角空格
+        body += `🏠 详细地址:\n       ${detailedAddress || addressText}`; // 注意：🏠和“详”之间是一个全角空格
         
         // ======================================
         
