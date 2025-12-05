@@ -227,11 +227,11 @@ function processTodayWeather(weatherData, province, city, district, poetry, isLa
             const hourSkycon = hourly.skycon[i].value;
             const hourDesc = getWeatherDescription(hourSkycon);
             
-            hourlyForecast += `     ${currentHour.toString().padStart(2, '0')}-${nextHour.toString().padStart(2, '0')}时 ${hourDesc} ${temp}℃\n`;
+            hourlyForecast += `      ${currentHour.toString().padStart(2, '0')}-${nextHour.toString().padStart(2, '0')}时 ${hourDesc} ${temp}℃\n`;
         }
         
         if (hourlyForecast) {
-            body += `⏰ 未来三小时预报:\n ${hourlyForecast}\n`;
+            body += `⏰ 未来三小时预报:\n${hourlyForecast}\n`;
         }
         
         // 预警信息
