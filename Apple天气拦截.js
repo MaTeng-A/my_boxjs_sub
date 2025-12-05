@@ -1,8 +1,8 @@
-// 名称: 苹果天气GPS拦截器 (完整静默日志版)
-// 描述: 精准拦截苹果天气GPS坐标，静默时段记录日志，正常时段发送精美通知
-// 版本: 12.0 - 完整静默日志版
+// 名称: 苹果天气GPS拦截器 (日志分析版)
+// 描述: 精准拦截苹果天气GPS坐标，发送简洁通知，在日志中输出周边环境分析报告
+// 版本: 13.0 - 日志分析版
 // 作者: MaTeng-A
-// 更新时间: 2025-12-03
+// 更新时间: 2025-12-05
 
 console.log("🎯 苹果天气GPS拦截器启动");
 
@@ -150,7 +150,7 @@ function saveLocationData(lat, lng, timestamp) {
     const accurateGpsLocation = {
         latitude: lat,
         longitude: lng,
-        source: "weatherkit_apple_full"  // 彩云天气脚本中判断的条件
+        source: "weatherkit_apple_full"
     };
     
     $persistentStore.write(JSON.stringify(accurateGpsLocation), "accurate_gps_location");
@@ -186,6 +186,76 @@ function getAddressAsync(lat, lng) {
     });
 }
 
+// === 新增：在日志中输出周边推荐信息 ===
+function logSurroundingRecommendations(pois, addressText) {
+    if (!pois || pois.length === 0) {
+        console.log("📋 周边推荐: 暂无兴趣点数据");
+        return;
+    }
+    
+    console.log("\n========================================");
+    console.log(`📋 基于"${addressText}"的周边推荐`);
+    console.log("========================================");
+    
+    // 定义分类关键词映射
+    const categoryKeywords = {
+        "酒店民宿": ["酒店", "宾馆", "客栈", "民宿", "旅馆", "度假村"],
+        "美食": ["餐厅", "饭店", "菜馆", "火锅", "烧烤", "小吃", "快餐", "咖啡", "甜品", "饮品"],
+        "休闲玩乐": ["酒吧", "KTV", "影院", "剧院", "网吧", "棋牌", "健身房", "瑜伽", "SPA", "足浴"],
+        "商场购物": ["商场", "购物中心", "超市", "便利店", "市场", "百货", "专卖店", "品牌"],
+        "景点游玩": ["公园", "景区", "景点", "博物馆", "纪念馆", "展览馆", "古镇", "游乐园", "动物园"]
+    };
+    
+    // 为每个类别收集POI
+    const categorizedPois = {};
+    for (const category in categoryKeywords) {
+        categorizedPois[category] = [];
+    }
+    
+    // 遍历所有POI，进行分类
+    pois.forEach(poi => {
+        for (const category in categoryKeywords) {
+            const keywords = categoryKeywords[category];
+            const poiText = (poi.title + ' ' + (poi.category || '')).toLowerCase();
+            if (keywords.some(keyword => poiText.includes(keyword))) {
+                categorizedPois[category].push({
+                    ...poi,
+                    distanceDisplay: poi.distance < 1000 ? `${poi.distance}米` : `${(poi.distance/1000).toFixed(1)}公里`
+                });
+                break;
+            }
+        }
+    });
+    
+    // 为每个类别输出前3个（按距离排序）
+    let hasAnyRecommendation = false;
+    for (const category in categorizedPois) {
+        const list = categorizedPois[category];
+        if (list.length > 0) {
+            hasAnyRecommendation = true;
+            list.sort((a, b) => a.distance - b.distance);
+            const topThree = list.slice(0, 3);
+            
+            console.log(`\n🏷️ ${category}:`);
+            topThree.forEach((poi, index) => {
+                let simpleCategory = poi.category || '';
+                const match = simpleCategory.match(/[^:]+$/);
+                if (match) simpleCategory = match[0];
+                
+                console.log(`   ${index + 1}. ${poi.title}`);
+                console.log(`      📍 距离: ${poi.distanceDisplay} | 类别: ${simpleCategory}`);
+                if (poi.address) console.log(`      🏠 地址: ${poi.address}`);
+            });
+        }
+    }
+    
+    if (!hasAnyRecommendation) {
+        console.log("\n⚠️ 未识别到指定类别的周边推荐。");
+        console.log("原始POI列表:", pois.map(p => `${p.title}(${p.category})`).join(', '));
+    }
+    console.log("\n========================================\n");
+}
+
 function getDetailedAddressAndNotify(lat, lng, source, timestamp, timeDiffMinutes = null) {
     const TENCENT_TOKEN = "F7NBZ-MC3R3-6AV3J-RR75X-KKDTE-EKFLQ";
     const geocoderUrl = `https://apis.map.qq.com/ws/geocoder/v1/?key=${TENCENT_TOKEN}&location=${lat},${lng}`;
@@ -195,10 +265,11 @@ function getDetailedAddressAndNotify(lat, lng, source, timestamp, timeDiffMinute
     $httpClient.get(geocoderUrl, function(error, response, data) {
         let addressText = "地址解析中...";
         let detailedAddress = "";
+        let result = null;
         
         if (!error && response.status === 200) {
             try {
-                const result = JSON.parse(data);
+                result = JSON.parse(data);
                 if (result.status === 0) {
                     const address = result.result.address_component;
                     addressText = `${address.province || ''}${address.city || ''}${address.district || ''}`;
@@ -215,6 +286,14 @@ function getDetailedAddressAndNotify(lat, lng, source, timestamp, timeDiffMinute
                     locationData.address = addressText;
                     locationData.detailedAddress = detailedAddress;
                     $persistentStore.write(JSON.stringify(locationData), "gps_location_data");
+                    
+                    // 【新增】在日志中输出详细的周边推荐
+                    if (result.result.pois && result.result.pois.length > 0) {
+                        console.log("🛍️ 开始分析周边兴趣点...");
+                        logSurroundingRecommendations(result.result.pois, addressText);
+                    } else {
+                        console.log("📭 周边兴趣点数据为空。");
+                    }
                     
                 } else {
                     console.log("❌ 腾讯地图API错误:", result.message);
@@ -239,12 +318,12 @@ function getDetailedAddressAndNotify(lat, lng, source, timestamp, timeDiffMinute
         }).replace(/\//g, '-');
         
         // ======================================
-        // 构建通知内容 (精美Emoji图标版)
+        // 构建通知内容 (精简Emoji图标版)
         // ======================================
         const title = "📍 GPS定位成功";
-        const subtitle = `📍 ${addressText}`; // 地址仅在副标题显示一次
-
-        let body = ""; // 正文直接从时间信息开始
+        const subtitle = `📍 ${addressText}`;
+        
+        let body = "";
         if (timeDiffMinutes !== null && timeDiffMinutes > 0) {
             body += `⏰ 更新时间: ${timeDiffMinutes}分钟前\n`;
         } else {
@@ -254,8 +333,18 @@ function getDetailedAddressAndNotify(lat, lng, source, timestamp, timeDiffMinute
         body += `📡 数据来源: ${source}\n`;
         body += `🌐 坐标精度: 高精度GPS\n`;
         body += `🌎 经纬度: ${lat}, ${lng}\n\n`;
-        body += `🏠 详细地址:\n      ${detailedAddress || addressText}`; // 5个普通空格 + 2个窄空格
         
+        // 智能地址合并
+        let finalAddressLine = detailedAddress || addressText;
+        if (result && result.status === 0) {
+            const addr = result.result.address_component;
+            const streetAddr = (addr.street || '') + (addr.street_number || '');
+            if (streetAddr && !finalAddressLine.includes(streetAddr)) {
+                finalAddressLine += ` (${streetAddr})`;
+            }
+        }
+        
+        body += `🏠 详细地址: ${finalAddressLine}`;
         // ======================================
         
         // 检查当前时间是否在静默时段 (23:00 - 06:00)
@@ -269,7 +358,6 @@ function getDetailedAddressAndNotify(lat, lng, source, timestamp, timeDiffMinute
             console.log(`   标题: ${title}`);
             console.log(`   副标题: ${subtitle}`);
             console.log(`   正文:`);
-            // 将正文内容按行分割并添加缩进，便于阅读
             const bodyLines = body.split('\n');
             bodyLines.forEach(line => {
                 console.log(`      ${line}`);
