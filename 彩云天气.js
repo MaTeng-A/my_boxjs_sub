@@ -231,7 +231,7 @@ function processTodayWeather(weatherData, province, city, district, poetry, isLa
         }
         
         if (hourlyForecast) {
-            body += `⏰ 未来三小时预报:\n${hourlyForecast}\n`;
+            body += `⏰ 未来三小时预报:\n ${hourlyForecast}\n`;
         }
         
         // 预警信息
